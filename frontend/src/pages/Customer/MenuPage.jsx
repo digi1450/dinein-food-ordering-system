@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 const API = import.meta.env.VITE_API;
 
@@ -18,6 +19,9 @@ export default function MenuPage() {
   const [cartCount, setCartCount] = useState(0);
   const [flying, setFlying] = useState(null); // { id: number, ts: number } | null
 
+  useEffect(() => {
+    if (!tableId) nav("/", { replace: true });
+  }, [tableId, nav]);
   // โหลดหมวดหมู่มาใช้ทำแท็บ
   useEffect(() => {
     (async () => {
@@ -85,12 +89,9 @@ export default function MenuPage() {
       <div className="max-w-4xl mx-auto p-6">
         <header className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Menu — Table {tableId || "?"}</h1>
-          <a
-            className="underline"
-            href={`/?table=${tableId}`}
-          >
+          <Link className="underline" to={`/home?table=${tableId}`} >
             Categories
-          </a>
+          </Link>
         </header>
 
         {/* แท็บหมวดหมู่ */}
@@ -147,9 +148,9 @@ export default function MenuPage() {
         </div>
 
         <div className="mt-6">
-          <a
+          <Link
             className="relative inline-flex items-center gap-1 whitespace-nowrap px-4 py-2 bg-white text-black rounded pr-8"
-            href={`/cart?table=${tableId}`}
+            to={`/cart?table=${tableId}`}
           >
             <span>Go to Cart</span>
             <span className="opacity-70"></span>
@@ -158,7 +159,7 @@ export default function MenuPage() {
                 {cartCount}
               </span>
             )}
-          </a>
+          </Link>
         </div>
       </div>
       {toast && (

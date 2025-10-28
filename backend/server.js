@@ -13,12 +13,15 @@ import authRoutes from "./routes/auth.js";
 import adminMenuRoutes from "./routes/admin.menu.js";
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
+}));
 app.use(express.json());
 
 app.use("/api/admin", authRoutes);
 app.use("/api/admin/menu", adminMenuRoutes);
 app.use("/api/admin", adminRoutes);
+
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/tables", tableRoutes);

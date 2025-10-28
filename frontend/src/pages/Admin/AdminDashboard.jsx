@@ -1,10 +1,13 @@
 // frontend/src/pages/Admin/AdminDashboard.jsx
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 
 const API = import.meta.env.VITE_API || "http://127.0.0.1:5050";
 
 export default function AdminDashboard() {
+  const nav = useNavigate();
+
   // tabs: orders | menu | activity
   const [tab, setTab] = useState("orders");
 
@@ -21,8 +24,17 @@ export default function AdminDashboard() {
     description: ""
   });
 
-  // Realtime orders (SSE feed)
+  // ---- Guard: ไม่มี token ให้เด้งไป login ----
   useEffect(() => {
+    const t = localStorage.getItem("token");
+    if (!t) {
+      nav("/admin/login", { replace: true });
+    }
+  }, [nav]);
+
+  // ---- Realtime orders (SSE feed) ----
+  useEffect(() => {
+    // ถ้า stream นี้ต้องใช้ auth ให้เปลี่ยนไปใช้ ?token=... ใน query (EventSource ใส่ header ไม่ได้)
     const es = new EventSource(`${API}/api/orders/stream-all`);
     es.onmessage = (e) => {
       try { setOrders(JSON.parse(e.data)); } catch {}
@@ -31,10 +43,11 @@ export default function AdminDashboard() {
     return () => es.close();
   }, []);
 
-  // load menu list (GET now public per our backend setup)
+  // ---- load menu list (ต้องแนบ token) ----
   const loadMenu = async () => {
     try {
-      const data = await api.get("/api/admin/menu", { auth: false });
+      // ใช้ api.admin เพื่อบังคับแนบ Authorization: Bearer <token>
+      const data = await api.admin.get("/menu");
       setMenu(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("loadMenu error:", e);
@@ -42,10 +55,11 @@ export default function AdminDashboard() {
     }
   };
 
-  // load recent admin activity (needs token)
+  // ---- load recent admin activity (ต้องแนบ token) ----
   const loadActivity = async () => {
     try {
-      const data = await api.get("/api/admin/logs/activity");
+      // ใช้ api.admin เช่นกัน
+      const data = await api.admin.get("/logs/activity");
       setActivity(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("loadActivity error:", e);
@@ -59,7 +73,7 @@ export default function AdminDashboard() {
     if (tab === "activity") loadActivity();
   }, [tab]);
 
-  // helpers
+  // ---- helpers ----
   const onCreateMenu = async (e) => {
     e.preventDefault();
     const payload = {
@@ -73,7 +87,7 @@ export default function AdminDashboard() {
       return;
     }
     try {
-      await api.post("/api/admin/menu", payload); // auth default true -> attaches Bearer token
+      await api.admin.post("/menu", payload); // แนบ token อัตโนมัติ
       setForm({ category_id: "2", food_name: "", price: "", description: "" });
       await loadMenu();
       alert("Created menu item ✅");
@@ -82,12 +96,18 @@ export default function AdminDashboard() {
     }
   };
 
+  const onLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("isAdmin");
+    nav("/admin/login", { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
             className={`px-3 py-1 border rounded ${tab==='orders' ? 'bg-white text-black' : 'hover:bg-white/10'}`}
             onClick={() => setTab("orders")}
@@ -105,6 +125,15 @@ export default function AdminDashboard() {
             onClick={() => setTab("activity")}
           >
             Activity
+          </button>
+
+          {/* Logout (ตัวเลือก) */}
+          <button
+            onClick={onLogout}
+            className="ml-3 px-3 py-1 border rounded hover:bg-white/10"
+            title="Logout"
+          >
+            Logout
           </button>
         </div>
       </div>

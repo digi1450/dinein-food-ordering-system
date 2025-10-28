@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 
 const API = import.meta.env.VITE_API;
 
@@ -189,12 +189,12 @@ export default function CartPage() {
       </div>
 
       <div className="mt-6 flex gap-3">
-        <a
-          href={`/menu?table=${tableId}`}
+        <Link
+          to={`/menu?table=${tableId}`}
           className="px-4 py-2 border rounded hover:bg-white/10"
         >
           Back to Menu
-        </a>
+        </Link>
         <button
           type="button"
           onClick={placeOrder}

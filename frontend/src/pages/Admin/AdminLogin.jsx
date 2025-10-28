@@ -1,6 +1,7 @@
-// frontend/src/pages/Admin/AdminLogin.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
+const API = import.meta.env.VITE_API || "http://127.0.0.1:5050";
 
 export default function AdminLogin() {
   const nav = useNavigate();
@@ -12,35 +13,48 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e) => {
-    e.preventDefault();            // กันรีเฟรชหน้า
+    e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const API = "http://127.0.0.1:5050";
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000); // 10s timeout
+
       const r = await fetch(`${API}/api/admin/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
-      });
+        signal: ctrl.signal,
+      }).finally(() => clearTimeout(t));
+
+      let data = null;
+      const ct = r.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        data = await r.json().catch(() => null);
+      } else {
+        await r.text().catch(() => null);
+      }
 
       if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        const msg = body?.message || "Login failed";
+        const msg = data?.message || r.statusText || "Login failed";
         throw new Error(msg);
       }
 
-      const data = await r.json();
       const { token } = data || {};
       if (!token) throw new Error("No token returned from server");
 
-      // ✅ เก็บ token ไว้ใช้เรียก API อื่น ๆ
+      // บันทึก token
       localStorage.setItem("token", token);
       localStorage.setItem("isAdmin", "true");
 
-      // ✅ ไปหน้าแดชบอร์ด
+      // ไปหน้าแดชบอร์ด
       nav("/admin/dashboard", { replace: true });
     } catch (err) {
-      setError(err?.message || "Login failed");
+      if (err?.name === "AbortError") {
+        setError("Request timeout, please try again.");
+      } else {
+        setError(err?.message || "Login failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -59,8 +73,7 @@ export default function AdminLogin() {
         <div className="bg-white/10 backdrop-blur p-8 rounded-lg shadow-lg w-full max-w-md">
           <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
 
-          {/* ใช้ form เพื่อให้กด Enter ได้ */}
-          <form className="space-y-4" onSubmit={handleLogin}>
+          <div className="space-y-4">
             <div>
               <label className="block text-sm mb-1">Username</label>
               <input
@@ -70,7 +83,6 @@ export default function AdminLogin() {
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-700 focus:border-white outline-none"
                 placeholder="Enter username"
-                required
               />
             </div>
 
@@ -84,7 +96,6 @@ export default function AdminLogin() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-700 focus:border-white outline-none"
                   placeholder="Enter password"
-                  required
                 />
                 <button
                   type="button"
@@ -99,15 +110,17 @@ export default function AdminLogin() {
             {error && <div className="text-red-400 text-sm">{error}</div>}
 
             <button
-              type="submit"
+              onClick={handleLogin}
               disabled={loading}
               className="w-full bg-white text-black py-2 rounded font-semibold hover:bg-gray-200 transition disabled:opacity-60"
             >
               {loading ? "Signing in..." : "Login"}
             </button>
 
-            <p className="text-xs opacity-70 text-center mt-2">API: 127.0.0.1:5050</p>
-          </form>
+            <p className="text-xs opacity-70 text-center mt-2">
+              API: {API.replace(/^https?:\/\//, "")}
+            </p>
+          </div>
         </div>
       </div>
     </div>
