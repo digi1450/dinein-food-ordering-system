@@ -1,0 +1,5 @@
+{
+  "tailwindCSS.experimental.configFile": "frontend/tailwind.config.js",
+  "editor.quickSuggestions": { "strings": true },
+  "css.lint.unknownAtRules": "ignore"
+}
