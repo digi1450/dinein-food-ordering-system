@@ -1,14 +1,27 @@
 import { Router } from "express";
 import { db } from "../config/db.js";
-const r = Router();
+import { requireAdmin } from "../middleware/auth.js";
 
-r.post("/login", async (req,res)=>{
-  try{
-    const { name, password } = req.body;
-    const [[u]] = await db.query(`SELECT * FROM user WHERE name=? LIMIT 1`, [name]);
-    if(!u || u.password !== password) return res.status(401).json({message:"invalid"});
-    res.json({ user_id: u.user_id, name: u.name, role: u.role });
-  }catch(e){ res.status(500).json({message:"login error"}); }
+const router = Router();
+
+// สร้างเมนู
+router.post("/", requireAdmin, async (req, res) => {
+  const { category_id, food_name, price, description = null } = req.body || {};
+  if (!category_id || !food_name || price == null)
+    return res.status(400).json({ message: "Missing fields" });
+
+  const [r] = await db.query(
+    `INSERT INTO food (category_id, food_name, price, description, created_by, updated_by)
+     VALUES (?,?,?,?,?,?)`,
+    [category_id, food_name, price, description, req.user.user_id, req.user.user_id]
+  );
+
+  await db.query(
+    `INSERT INTO admin_activity (user_id, entity_type, entity_id, action, details)
+     VALUES (?, 'food', ?, 'create', JSON_OBJECT('food_name', ?, 'price', ?))`,
+    [req.user.user_id, r.insertId, food_name, price]
+  );
+
+  res.status(201).json({ food_id: r.insertId });
 });
-
-export default r;
+export default router;

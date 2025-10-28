@@ -56,6 +56,73 @@ async function getOrderFlat(orderId) {
 }
 
 /* ---------------------------------------------
+   Realtime (SSE): per-order + admin feed
+---------------------------------------------- */
+const orderSubscribers = new Map();      // Map<orderId:number, Set<res>>
+const adminFeedSubscribers = new Set();  // Set<res>
+
+function subscribeOrder(orderId, res) {
+  let set = orderSubscribers.get(orderId);
+  if (!set) {
+    set = new Set();
+    orderSubscribers.set(orderId, set);
+  }
+  set.add(res);
+  res.on("close", () => {
+    set.delete(res);
+    if (set.size === 0) orderSubscribers.delete(orderId);
+  });
+}
+
+function subscribeAdminFeed(res) {
+  adminFeedSubscribers.add(res);
+  res.on("close", () => adminFeedSubscribers.delete(res));
+}
+
+async function getRecentOrders(limit = 30) {
+  const [rows] = await db.execute(
+    `SELECT 
+       o.order_id,
+       o.table_id,
+       t.table_label,
+       o.status,
+       o.total_amount,
+       o.created_at,
+       o.updated_at
+     FROM orders o
+     LEFT JOIN table_info t ON t.table_id = o.table_id
+     ORDER BY o.updated_at DESC, o.created_at DESC
+     LIMIT ?`,
+    [limit]
+  );
+  return rows;
+}
+
+async function publish(orderId) {
+  // push snapshot to per-order listeners
+  const subs = orderSubscribers.get(orderId);
+  if (subs && subs.size) {
+    try {
+      const snapshot = await getOrderFlat(orderId);
+      const payload = `data: ${JSON.stringify(snapshot)}\n\n`;
+      for (const res of subs) res.write(payload);
+    } catch (e) {
+      // ignore
+    }
+  }
+  // push feed to admin listeners
+  if (adminFeedSubscribers.size) {
+    try {
+      const feed = await getRecentOrders();
+      const payload = `data: ${JSON.stringify(feed)}\n\n`;
+      for (const res of adminFeedSubscribers) res.write(payload);
+    } catch (e) {
+      // ignore
+    }
+  }
+}
+
+/* ---------------------------------------------
    GET /api/orders/:id   → flatten response
 ---------------------------------------------- */
 router.get("/:id", async (req, res) => {
@@ -72,6 +139,29 @@ router.get("/:id", async (req, res) => {
     console.error("GET /api/orders/:id error:", err);
     return res.status(500).json({ message: "Server error" });
   }
+});
+
+/* ---------------------------------------------
+   GET /api/orders/:id/stream  → SSE per order
+---------------------------------------------- */
+router.get("/:id/stream", async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isFinite(orderId)) {
+    return res.status(400).end();
+  }
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  // send first snapshot
+  try {
+    const snapshot = await getOrderFlat(orderId);
+    if (snapshot) res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+  } catch (e) {}
+
+  // subscribe
+  subscribeOrder(orderId, res);
 });
 
 /* ---------------------------------------------
@@ -114,6 +204,25 @@ router.get("/", async (req, res) => {
     console.error("GET /api/orders error:", err);
     return res.status(500).json({ message: "Server error" });
   }
+});
+
+/* ---------------------------------------------
+   GET /api/orders/stream-all  → SSE for admin feed
+---------------------------------------------- */
+router.get("/stream-all", async (_req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  // initial feed
+  try {
+    const feed = await getRecentOrders();
+    res.write(`data: ${JSON.stringify(feed)}\n\n`);
+  } catch (e) {}
+
+  // subscribe
+  subscribeAdminFeed(res);
 });
 
 /* ---------------------------------------------
@@ -206,6 +315,9 @@ router.post("/", async (req, res) => {
 
       await conn.commit();
 
+      // notify realtime listeners (fire-and-forget)
+      publish(orderId).catch(() => {});
+
       // ส่งกลับแบบ flatten เพื่อให้ frontend ใช้ต่อได้เลย
       return res.status(201).json({
         order_id: orderId,
@@ -256,6 +368,10 @@ router.patch("/:id/status", async (req, res) => {
     );
     if (r.affectedRows === 0) return res.status(404).json({ message: "Order not found" });
     const result = await getOrderFlat(orderId);
+
+    // notify realtime listeners
+    publish(orderId).catch(() => {});
+
     return res.json(result);
   } catch (err) {
     console.error("PATCH /api/orders/:id/status error:", err);

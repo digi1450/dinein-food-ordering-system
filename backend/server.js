@@ -9,14 +9,18 @@ import orderRoutes from "./routes/order.js";
 import adminRoutes from "./routes/admin.js";
 import tableRoutes from "./routes/table.js";
 import paymentRoutes from "./routes/payment.js";
+import authRoutes from "./routes/auth.js";
+import adminMenuRoutes from "./routes/admin.menu.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.use("/api/admin", authRoutes);
+app.use("/api/admin/menu", adminMenuRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
-app.use("/api/admin", adminRoutes);
 app.use("/api/tables", tableRoutes);
 app.use("/api/payments", paymentRoutes);
 

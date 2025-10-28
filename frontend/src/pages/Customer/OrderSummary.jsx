@@ -20,9 +20,7 @@ export default function OrderSummary() {
   const [params] = useSearchParams(); // เผื่อในอนาคตใช้ code=? ตรวจสิทธิ์
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [auto, setAuto] = useState(true);
   const [lastAt, setLastAt] = useState(null);
-  const timer = useRef(null);
 
   // ดึงข้อมูลออเดอร์
   const fetchOrder = async () => {
@@ -44,15 +42,27 @@ export default function OrderSummary() {
     fetchOrder();
   }, [orderId]);
 
-  // Auto refresh ทุก 5 วิ (เปิด/ปิดได้)
+  // Realtime via SSE
   useEffect(() => {
-    if (auto) {
-      timer.current = setInterval(fetchOrder, 5000);
-      return () => clearInterval(timer.current);
-    } else {
-      if (timer.current) clearInterval(timer.current);
-    }
-  }, [auto, orderId]);
+    if (!orderId) return;
+
+    const es = new EventSource(`${API}/api/orders/${orderId}/stream`);
+    es.onmessage = (evt) => {
+      try {
+        const payload = JSON.parse(evt.data);
+        setData(payload);
+        setLastAt(new Date());
+      } catch (e) {
+        // ignore parse errors
+      }
+    };
+    es.onerror = () => {
+      // Close on error; UI still has a manual Refresh button as fallback
+      es.close();
+    };
+
+    return () => es.close();
+  }, [orderId]);
 
   const items = data?.items || [];
   const derivedTotal = useMemo(() => {
@@ -89,15 +99,6 @@ export default function OrderSummary() {
           >
             {loading ? "Refreshing..." : "Refresh"}
           </button>
-          <label className="flex items-center gap-2 text-sm opacity-80">
-            <input
-              type="checkbox"
-              checked={auto}
-              onChange={() => setAuto((v) => !v)}
-              className="accent-white"
-            />
-            Auto-refresh (5s)
-          </label>
         </div>
       </div>
 

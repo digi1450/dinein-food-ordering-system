@@ -29,27 +29,40 @@ export default function SelectTablePage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center">
-      <h1 className="text-3xl font-bold mb-6">Select Your Table</h1>
+    <div className="min-h-screen w-screen bg-black text-white relative">
+      {/* Admin Login pinned to top-right */}
+      <a
+        href="/admin/login"
+        className="fixed top-4 right-6 text-sm text-gray-400 hover:text-white transition"
+      >
+        Admin Login
+      </a>
 
-      {loading && <p className="opacity-70">Loading tables...</p>}
-      {err && <p className="text-red-400">{err}</p>}
+      {/* Centered content container */}
+      <div className="max-w-3xl mx-auto flex flex-col items-center justify-center min-h-screen px-4">
+        {/* Title */}
+        <h1 className="text-4xl font-bold mb-8 text-center">Select Your Table</h1>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
-        {tables.map((t) => (
-          <button
-            key={t.table_id}
-            onClick={() => handleSelect(t.table_id)}
-            disabled={t.status === "occupied"}
-            className={`border rounded-lg px-6 py-4 text-lg font-semibold ${
-              t.status === "occupied"
-                ? "opacity-40 cursor-not-allowed"
-                : "hover:bg-white/10"
-            }`}
-          >
-            Table {t.table_label}
-          </button>
-        ))}
+        {/* Table Buttons */}
+        {loading && <p className="opacity-70">Loading tables...</p>}
+        {err && <p className="text-red-400">{err}</p>}
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 place-items-center">
+          {tables.map((t) => (
+            <button
+              key={t.table_id}
+              onClick={() => handleSelect(t.table_id)}
+              disabled={t.status === "occupied"}
+              className={`border rounded-lg px-8 py-5 text-lg font-semibold ${
+                t.status === "occupied"
+                  ? "opacity-40 cursor-not-allowed"
+                  : "hover:bg-white/10"
+              }`}
+            >
+              Table {t.table_label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
