@@ -1,28 +1,54 @@
-import { Router } from "express";
+import express from "express";
 import { db } from "../config/db.js";
-const r = Router();
 
-r.get("/", async (_req, res) => {
+const router = express.Router();
+
+// GET /api/menu  (optional ?cat=)
+router.get("/", async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT f.food_id, f.food_name, f.price, f.description, f.image, f.is_active,
-              c.category_name, f.category_id
-       FROM food f LEFT JOIN category c ON f.category_id=c.category_id
-       WHERE f.is_active=1 ORDER BY c.category_name, f.food_name`
+    const { cat } = req.query;
+    if (cat) {
+      const [rows] = await db.execute(
+        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name
+         FROM food f
+         LEFT JOIN category c ON c.category_id = f.category_id
+         WHERE f.is_active = 1 AND f.category_id = ? 
+         ORDER BY f.food_name ASC`,
+        [cat]
+      );
+      return res.json(rows);
+    } else {
+      const [rows] = await db.execute(
+        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name
+         FROM food f
+         LEFT JOIN category c ON c.category_id = f.category_id
+         WHERE f.is_active = 1
+         ORDER BY c.category_name, f.food_name ASC`
+      );
+      return res.json(rows);
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Menu error");
+  }
+});
+
+// GET /api/menu/categories
+router.get("/categories", async (_req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT c.category_id, c.category_name,
+              COUNT(f.food_id) AS item_count
+       FROM category c
+       LEFT JOIN food f ON f.category_id = c.category_id AND f.is_active = 1
+       GROUP BY c.category_id, c.category_name
+       ORDER BY c.category_name ASC`
     );
     res.json(rows);
-  } catch (e) { res.status(500).json({message:"menu error"}); }
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Categories error");
+  }
 });
 
-r.post("/", async (req, res) => {
-  try {
-    const { category_id, food_name, price, description, image, is_active=1 } = req.body;
-    const [rs] = await db.query(
-      `INSERT INTO food (category_id,food_name,price,description,image,is_active) VALUES (?,?,?,?,?,?)`,
-      [category_id || null, food_name, price, description || null, image || null, is_active]
-    );
-    res.status(201).json({ food_id: rs.insertId });
-  } catch (e) { res.status(500).json({message:"create food error"}); }
-});
-
-export default r;
+export default router;

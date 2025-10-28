@@ -6,8 +6,11 @@ const API = import.meta.env.VITE_API;
 export default function CartPage() {
   const nav = useNavigate();
   const { search } = useLocation();
+
+  // read table id from URL and derive per-table cart key
   const tableIdRaw = new URLSearchParams(search).get("table");
   const tableId = Number(tableIdRaw || 0);
+  const cartKey = tableId ? `cart_table_${tableId}` : "cart";
 
   const [cart, setCart] = useState([]);
   const [name, setName] = useState("");
@@ -15,31 +18,38 @@ export default function CartPage() {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // โหลดตะกร้าจาก localStorage
+  // load cart for this table
   useEffect(() => {
-    const c = JSON.parse(localStorage.getItem("cart") || "[]");
+    const c = JSON.parse(localStorage.getItem(cartKey) || "[]");
     setCart(c);
-  }, []);
+  }, [cartKey]);
+
+  const writeCart = (next) => {
+    setCart(next);
+    localStorage.setItem(cartKey, JSON.stringify(next));
+  };
+
+  const priceOf = (it) => Number(it.price ?? it.unit_price ?? 0);
 
   const total = useMemo(
-    () => cart.reduce((sum, it) => sum + Number(it.price) * it.quantity, 0),
+    () => cart.reduce((sum, it) => sum + priceOf(it) * (Number(it.quantity) || 1), 0),
     [cart]
   );
 
   const updateQty = (food_id, delta) => {
     const next = cart
       .map((it) =>
-        it.food_id === food_id ? { ...it, quantity: Math.max(1, it.quantity + delta) } : it
+        it.food_id === food_id
+          ? { ...it, quantity: Math.max(1, (Number(it.quantity) || 1) + delta) }
+          : it
       )
-      .filter((it) => it.quantity > 0);
-    setCart(next);
-    localStorage.setItem("cart", JSON.stringify(next));
+      .filter((it) => (Number(it.quantity) || 1) > 0);
+    writeCart(next);
   };
 
   const removeItem = (food_id) => {
     const next = cart.filter((it) => it.food_id !== food_id);
-    setCart(next);
-    localStorage.setItem("cart", JSON.stringify(next));
+    writeCart(next);
   };
 
   const placeOrder = async () => {
@@ -71,20 +81,16 @@ export default function CartPage() {
         throw new Error(`Create order failed (${res.status}): ${errText}`);
       }
 
-      let data;
-      const text = await res.text();
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        throw new Error("Invalid API response (not JSON)");
-      }
-
+      const data = await res.json();
       const orderId = Number(data?.order_id);
       if (!Number.isFinite(orderId)) {
         throw new Error("Invalid API response: missing order_id");
       }
 
-      localStorage.removeItem("cart");
+      // clear only this table's cart
+      localStorage.removeItem(cartKey);
+
+      // go to Order Summary
       nav(`/summary/${orderId}`);
     } catch (e) {
       console.error(e);
@@ -102,34 +108,42 @@ export default function CartPage() {
         <div className="opacity-80">Your cart is empty.</div>
       ) : (
         <div className="space-y-3">
-          {cart.map((it) => (
-            <div key={it.food_id} className="border rounded p-3 flex items-center justify-between">
-              <div>
-                <div className="font-semibold">{it.food_name}</div>
-                <div className="text-sm opacity-70">฿{Number(it.price).toFixed(2)}</div>
-              </div>
+          {cart.map((it) => {
+            const unit = priceOf(it);
+            const qty = Number(it.quantity) || 1;
+            const sub = unit * qty;
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => updateQty(it.food_id, -1)}
-                  className="px-2 py-1 border rounded"
-                >
-                  −
-                </button>
-                <div className="w-8 text-center">{it.quantity}</div>
-                <button
-                  onClick={() => updateQty(it.food_id, +1)}
-                  className="px-2 py-1 border rounded"
-                >
-                  +
-                </button>
+            return (
+              <div key={it.food_id} className="border rounded p-3 flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">{it.food_name}</div>
+                  <div className="text-sm opacity-70">฿{unit.toFixed(2)}</div>
+                </div>
 
-                <button onClick={() => removeItem(it.food_id)} className="ml-3 text-red-400">
-                  Remove
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateQty(it.food_id, -1)}
+                    className="px-2 py-1 border rounded"
+                  >
+                    −
+                  </button>
+                  <div className="w-8 text-center">{qty}</div>
+                  <button
+                    onClick={() => updateQty(it.food_id, +1)}
+                    className="px-2 py-1 border rounded"
+                  >
+                    +
+                  </button>
+
+                  <div className="w-20 text-right">฿{sub.toFixed(2)}</div>
+
+                  <button onClick={() => removeItem(it.food_id)} className="ml-3 text-red-400">
+                    Remove
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <div className="flex justify-between items-center border-t pt-3">
             <div className="text-xl font-bold">Total</div>
@@ -176,7 +190,7 @@ export default function CartPage() {
 
       <div className="mt-6 flex gap-3">
         <a
-          href={`/?table=${tableId}`}
+          href={`/menu?table=${tableId}`}
           className="px-4 py-2 border rounded hover:bg-white/10"
         >
           Back to Menu

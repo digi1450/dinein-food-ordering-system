@@ -1,18 +1,20 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import MenuPage from "./pages/Customer/MenuPage.jsx";
-import CartPage from "./pages/Customer/CartPage.jsx";
-import OrderSummary from "./pages/Customer/OrderSummary.jsx";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import SelectTablePage from "./pages/Customer/SelectTablePage";
+import HomePage from "./pages/Customer/HomePage";
+import MenuPage from "./pages/Customer/MenuPage";
+import CartPage from "./pages/Customer/CartPage";
+import OrderSummary from "./pages/Customer/OrderSummary";
 
-function App() {
+export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MenuPage />} />
+        <Route path="/" element={<SelectTablePage />} />   {/* ✅ หน้าเลือกโต๊ะ */}
+        <Route path="/home" element={<HomePage />} />      {/* ✅ หน้าเลือกหมวด */}
+        <Route path="/menu" element={<MenuPage />} />
         <Route path="/cart" element={<CartPage />} />
-        <Route path="/summary/:orderId" element={<OrderSummary />} />        
+        <Route path="/summary/:orderId" element={<OrderSummary />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   );
 }
-
-export default App;

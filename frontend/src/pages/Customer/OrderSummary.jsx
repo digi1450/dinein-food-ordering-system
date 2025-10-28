@@ -29,6 +29,7 @@ export default function OrderSummary() {
     try {
       setLoading(true);
       const r = await fetch(`${API}/api/orders/${orderId}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       setData(d);
       setLastAt(new Date());
@@ -68,21 +69,8 @@ export default function OrderSummary() {
   }, [data, items]);
 
   // --- safe mappings based on current response shape ---
-  const orderNo =
-    data?.order_id ??
-    data?.id ??
-    data?.orders_id ??
-    data?.order?.order_id ??
-    data?.order?.id ??
-    "—";
-
-  const tableNo =
-    data?.table_id ??
-    data?.table_no ??
-    data?.table ??
-    data?.table_info_id ??
-    data?.order?.table_id ??
-    "UNKNOWN";
+  const orderNo  = data?.order_id ?? "—";
+  const tableNo  = data?.table_label ?? data?.table_id ?? "—";
 
   const statusRaw = data?.status ?? data?.order?.status ?? "unknown";
   const statusText = String(statusRaw).toUpperCase();
@@ -154,7 +142,7 @@ export default function OrderSummary() {
             <div className="text-xl font-bold">฿{derivedTotal.toFixed(2)}</div>
           </div>
 
-          <a href={`/?table=${tableNo || 1}`} className="inline-block mt-6 border px-4 py-2 rounded">
+          <a href={`/home?table=${data?.table_id ?? ""}`} className="inline-block mt-6 border px-4 py-2 rounded">
             Back to Menu
           </a>
         </>

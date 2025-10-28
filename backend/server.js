@@ -20,7 +20,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/tables", tableRoutes);
 app.use("/api/payments", paymentRoutes);
 
+
 app.get("/", (_req, res) => res.send("Food POS API running"));
 app.listen(process.env.PORT, () => console.log("API on :", process.env.PORT));
 
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
