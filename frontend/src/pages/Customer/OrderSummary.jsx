@@ -221,7 +221,6 @@ export default function OrderSummary() {
 
         <div className="flex items-center gap-2">
           <button
-            type="button"
             onClick={() => {
               if (!Number.isFinite(Number(currentId))) return;
               (async () => {
@@ -235,13 +234,13 @@ export default function OrderSummary() {
                   setLastAt(new Date());
                 } catch (e) {
                   console.error(e);
-                  setError("โหลดออเดอร์ไม่สำเร็จ");
+                  setError("Unsuccessful order reload");
                 } finally {
                   setLoading(false);
                 }
               })();
             }}
-            className="appearance-none [-webkit-appearance:none] bg-transparent px-3 py-1 border rounded hover:bg-white/10 disabled:opacity-60"
+            className="px-3 py-1 border rounded hover:bg-white/10 disabled:opacity-60"
             disabled={loading}
             title="Refresh now"
           >
