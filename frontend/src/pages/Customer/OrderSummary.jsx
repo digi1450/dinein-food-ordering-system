@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-const API = import.meta.env.VITE_API;
+// Resolve API base from env; fall back safely to 127.0.0.1:5050
+const RAW_BASE =
+  (import.meta.env && (import.meta.env.VITE_API_BASE || import.meta.env.VITE_API)) || "";
+const API_BASE =
+  typeof RAW_BASE === "string" && /^https?:\/\//.test(RAW_BASE)
+    ? RAW_BASE.replace(/\/+$/, "")
+    : `${location.protocol}//127.0.0.1:5050`;
+if (!RAW_BASE || !/^https?:\/\//.test(RAW_BASE)) {
+  // Warn once in dev so we know why it fell back
+  try { console.warn("[OrderSummary] Using fallback API base:", API_BASE); } catch {}
+}
 
 const statusStyle = (s = "") => {
   const k = s.toLowerCase();
@@ -16,53 +26,172 @@ const statusStyle = (s = "") => {
 };
 
 export default function OrderSummary() {
+  const [error, setError] = useState("");
+  const esRef = useRef(null);                    // เก็บ EventSource ไว้ปิดตอน unmount
   const { orderId } = useParams();
   const [params] = useSearchParams(); // เผื่อในอนาคตใช้ code=? ตรวจสิทธิ์
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt] = useState(null);
+  const [currentId, setCurrentId] = useState(null); // resolved order_id to use
 
-  // ดึงข้อมูลออเดอร์
-  const fetchOrder = async () => {
-    try {
-      setLoading(true);
-      const r = await fetch(`${API}/api/orders/${orderId}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      setData(d);
-      setLastAt(new Date());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+  const savedOrderId = useMemo(() => {
+    const keys = ["last_order_id", "order_id", "currentOrderId"];
+    for (const k of keys) {
+      const v = Number(localStorage.getItem(k));
+      if (Number.isFinite(v) && v > 0) return v;
     }
-  };
+    return null;
+  }, []);
 
+  const tableIdParam = params.get("table");
+  const orderIdParam = params.get("order"); // optional ?order=17
+
+  // optional: table id saved locally if URL has none
+  const savedTableId = useMemo(() => {
+    const keys = ["last_table_id", "table_id", "currentTableId"];
+    for (const k of keys) {
+      const v = Number(localStorage.getItem(k));
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+    return null;
+  }, []);
+
+  // 1) Resolve which order_id to show: priority => route :orderId -> ?order= -> savedOrderId -> latest by ?table=
   useEffect(() => {
-    fetchOrder();
-  }, [orderId]);
+    console.debug("[OrderSummary] resolve id from:", { routeParam: orderId, queryOrder: orderIdParam, savedOrderId, tableIdParam, savedTableId });
+    // priority 1: route param /:orderId
+    if (orderId && Number.isFinite(Number(orderId))) {
+      setCurrentId(Number(orderId));
+      return;
+    }
+    // priority 2: explicit ?order=...
+    if (orderIdParam && Number.isFinite(Number(orderIdParam))) {
+      setCurrentId(Number(orderIdParam));
+      return;
+    }
+    // priority 3: saved id in localStorage
+    if (Number.isFinite(Number(savedOrderId))) {
+      setCurrentId(Number(savedOrderId));
+      return;
+    }
+    // priority 4: latest order of this table (?table=...)
+    const tableId = Number(tableIdParam);
+    if (Number.isFinite(tableId)) {
+      (async () => {
+        try {
+          setLoading(true);
+          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/api/orders?table_id=${tableId}`);
+          const r = await fetch(`${API_BASE}/api/orders?table_id=${tableId}`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const list = await r.json();
+          const latest = list?.[0]; // API already orders by created_at DESC
+          if (latest?.order_id) {
+            setCurrentId(Number(latest.order_id));
+          } else {
+            setData(null);
+          }
+        } catch (e) {
+          console.error(e);
+          setError("ไม่พบออเดอร์ของโต๊ะนี้");
+        } finally {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
+    // priority 5: latest order from saved table id
+    if (!Number.isFinite(Number(tableIdParam)) && Number.isFinite(Number(savedTableId))) {
+      const tableId = Number(savedTableId);
+      (async () => {
+        try {
+          setLoading(true);
+          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/api/orders?table_id=${tableId}`);
+          const r = await fetch(`${API_BASE}/api/orders?table_id=${tableId}`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const list = await r.json();
+          const latest = list?.[0];
+          if (latest?.order_id) {
+            setCurrentId(Number(latest.order_id));
+          } else {
+            setData(null);
+          }
+        } catch (e) {
+          console.error(e);
+          setError("ไม่พบออเดอร์ของโต๊ะนี้ (saved)");
+        } finally {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
+    // if nothing matches, show error and stop loading spinner
+    setError("ไม่พบ order ที่ต้องแสดง");
+    setLoading(false);
+  }, [orderId, orderIdParam, savedOrderId, tableIdParam, savedTableId]);
 
-  // Realtime via SSE
+  // 2) Load the order once currentId is known
   useEffect(() => {
-    if (!orderId) return;
+    if (!Number.isFinite(Number(currentId))) return;
+    (async () => {
+      try {
+        setLoading(true);
+        console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/api/orders/${currentId}`);
+        const r = await fetch(`${API_BASE}/api/orders/${currentId}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const d = await r.json();
+        setData(d);
+        setLastAt(new Date());
+        // keep latest order id for future visits
+        try { localStorage.setItem("last_order_id", String(d?.order_id || currentId)); } catch {}
+      } catch (e) {
+        console.error(e);
+        setError("โหลดออเดอร์ไม่สำเร็จ");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [currentId]);
 
-    const es = new EventSource(`${API}/api/orders/${orderId}/stream`);
+  // Realtime via SSE (follow currentId)
+  useEffect(() => {
+    if (!Number.isFinite(Number(currentId))) return;
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    const streamUrl = `${API_BASE}/api/orders/${currentId}/stream`;
+    console.debug("[OrderSummary] SSE URL:", streamUrl);
+    let es;
+    try {
+      es = new EventSource(streamUrl, { withCredentials: false });
+    } catch (e) {
+      console.error("[OrderSummary] EventSource init error. URL:", streamUrl, e);
+      setError("เชื่อมต่อสตรีมไม่สำเร็จ (ตรวจค่า VITE_API_BASE)");
+      return;
+    }
+    esRef.current = es;
     es.onmessage = (evt) => {
       try {
         const payload = JSON.parse(evt.data);
         setData(payload);
         setLastAt(new Date());
-      } catch (e) {
-        // ignore parse errors
-      }
+      } catch (_) {}
     };
     es.onerror = () => {
-      // Close on error; UI still has a manual Refresh button as fallback
-      es.close();
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
     };
+    return () => {
+      if (esRef.current) {
+        esRef.current.close();
+        esRef.current = null;
+      }
+    };
+  }, [currentId]);
 
-    return () => es.close();
-  }, [orderId]);
 
   const items = data?.items || [];
   const derivedTotal = useMemo(() => {
@@ -79,7 +208,7 @@ export default function OrderSummary() {
   }, [data, items]);
 
   // --- safe mappings based on current response shape ---
-  const orderNo  = data?.order_id ?? "—";
+  const orderNo  = data?.order_id ?? currentId ?? "—";
   const tableNo  = data?.table_label ?? data?.table_id ?? "—";
 
   const statusRaw = data?.status ?? data?.order?.status ?? "unknown";
@@ -92,8 +221,27 @@ export default function OrderSummary() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchOrder}
-            className="px-3 py-1 border rounded hover:bg-white/10 disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              if (!Number.isFinite(Number(currentId))) return;
+              (async () => {
+                try {
+                  setLoading(true);
+                  console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/api/orders/${currentId}`);
+                  const r = await fetch(`${API_BASE}/api/orders/${currentId}`);
+                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                  const d = await r.json();
+                  setData(d);
+                  setLastAt(new Date());
+                } catch (e) {
+                  console.error(e);
+                  setError("โหลดออเดอร์ไม่สำเร็จ");
+                } finally {
+                  setLoading(false);
+                }
+              })();
+            }}
+            className="appearance-none [-webkit-appearance:none] bg-transparent px-3 py-1 border rounded hover:bg-white/10 disabled:opacity-60"
             disabled={loading}
             title="Refresh now"
           >
@@ -106,8 +254,12 @@ export default function OrderSummary() {
         {lastAt ? `Last updated: ${lastAt.toLocaleTimeString()}` : "—"}
       </div>
 
-      {!data ? (
+      {loading ? (
         <div className="opacity-80">Loading...</div>
+      ) : !data ? (
+        <div className="opacity-80">
+          ไม่พบออเดอร์สำหรับโต๊ะ {tableIdParam || "—"} — สร้างออเดอร์ใหม่จากเมนูได้เลย
+        </div>
       ) : (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-2">

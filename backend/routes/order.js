@@ -152,6 +152,8 @@ router.get("/:id/stream", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
+
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
   // send first snapshot
@@ -162,6 +164,15 @@ router.get("/:id/stream", async (req, res) => {
 
   // subscribe
   subscribeOrder(orderId, res);
+
+   // ส่ง heartbeat ทุก 15 วิ เพื่อกัน timeout
+  const interval = setInterval(() => {
+    res.write(":keep-alive\n\n");
+  }, 15000);
+
+  res.on("close", () => {
+    clearInterval(interval);
+  });
 });
 
 /* ---------------------------------------------
@@ -213,6 +224,8 @@ router.get("/stream-all", async (_req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
+
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
   // initial feed
@@ -223,6 +236,13 @@ router.get("/stream-all", async (_req, res) => {
 
   // subscribe
   subscribeAdminFeed(res);
+  // heartbeat กันหลุด
+  const interval = setInterval(() => {
+    res.write(":keep-alive\n\n");
+  }, 15000);
+  res.on("close", () => {
+    clearInterval(interval);
+  });
 });
 
 /* ---------------------------------------------
@@ -297,7 +317,12 @@ router.post("/", async (req, res) => {
         [table_id, customer_name, phone, notes, totalAmount]
       );
       const orderId = Number(orderRes.insertId);
-
+      
+      // หลังได้ orderId แล้ว
+      await conn.execute(
+        `UPDATE table_info SET status='occupied' WHERE table_id=?`,
+        [table_id]
+      );
       // บันทึกรายการ
       const values = orderItems.flatMap((it) => [
         orderId,
@@ -312,6 +337,8 @@ router.post("/", async (req, res) => {
          VALUES ${placeholdersRow}`,
         values
       );
+      
+
 
       await conn.commit();
 
@@ -340,43 +367,57 @@ router.post("/", async (req, res) => {
 
 /* ---------------------------------------------
    PATCH /api/orders/:id/status
-   Body: { status: "accepted" | "preparing" | "served" | "completed" | "cancelled" }
+   Body: { status: "accepted" | "preparing" | "served" | "completed" | "cancelled", note? }
 ---------------------------------------------- */
 router.patch("/:id/status", async (req, res) => {
   const orderId = Number(req.params.id);
-  const { status } = req.body || {};
+  const { status, note = null } = req.body || {};
 
   if (!Number.isFinite(orderId)) {
     return res.status(400).json({ message: "Invalid order id" });
   }
   const ALLOWED = new Set([
-    "pending",
-    "accepted",
-    "preparing",
-    "served",
-    "completed",
-    "cancelled",
+    "pending", "accepted", "preparing", "served", "completed", "cancelled",
   ]);
   if (!ALLOWED.has(String(status))) {
     return res.status(400).json({ message: "Invalid status value" });
   }
 
   try {
+    // 1) อ่านสถานะก่อนหน้า (และ user_id ถ้าผูกผู้สั่งงานไว้)
+    const [[prev]] = await db.execute(
+      `SELECT status, user_id FROM orders WHERE order_id=?`,
+      [orderId]
+    );
+    if (!prev) return res.status(404).json({ message: "Order not found" });
+
+    // 2) อัปเดตสถานะใหม่
     const [r] = await db.execute(
       `UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?`,
       [status, orderId]
     );
-    if (r.affectedRows === 0) return res.status(404).json({ message: "Order not found" });
+    if (r.affectedRows === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // 3) บันทึกลง order_status_log
+    //    - ถ้ายังไม่มีระบบ auth ให้ใช้ user_id = prev.user_id || 1 ชั่วคราว
+    await db.execute(
+      `INSERT INTO order_status_log (order_id, user_id, from_status, to_status, note, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [orderId, prev?.user_id ?? 1, prev.status, status, note]
+    );
+
+    // 4) โหลด snapshot ปัจจุบันส่งกลับ + แจ้ง SSE
     const result = await getOrderFlat(orderId);
-
-    // notify realtime listeners
     publish(orderId).catch(() => {});
-
     return res.json(result);
+
   } catch (err) {
     console.error("PATCH /api/orders/:id/status error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 
 export default router;
