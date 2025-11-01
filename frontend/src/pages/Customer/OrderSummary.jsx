@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-// Resolve API base from env; fall back safely to 127.0.0.1:5050
-const RAW_BASE =
-  (import.meta.env && (import.meta.env.VITE_API_BASE || import.meta.env.VITE_API)) || "";
-const API_BASE =
-  typeof RAW_BASE === "string" && /^https?:\/\//.test(RAW_BASE)
-    ? RAW_BASE.replace(/\/+$/, "")
-    : `${location.protocol}//127.0.0.1:5050`;
-if (!RAW_BASE || !/^https?:\/\//.test(RAW_BASE)) {
-  // Warn once in dev so we know why it fell back
-  try { console.warn("[OrderSummary] Using fallback API base:", API_BASE); } catch {}
-}
+import API_BASE from "../../lib/apiBase";
+try { console.debug("[OrderSummary] API base:", API_BASE); } catch {}
 
 const statusStyle = (s = "") => {
   const k = s.toLowerCase();
@@ -81,8 +72,8 @@ export default function OrderSummary() {
       (async () => {
         try {
           setLoading(true);
-          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/api/orders?table_id=${tableId}`);
-          const r = await fetch(`${API_BASE}/api/orders?table_id=${tableId}`);
+          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/orders?table_id=${tableId}`);
+          const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const list = await r.json();
           const latest = list?.[0]; // API already orders by created_at DESC
@@ -106,8 +97,8 @@ export default function OrderSummary() {
       (async () => {
         try {
           setLoading(true);
-          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/api/orders?table_id=${tableId}`);
-          const r = await fetch(`${API_BASE}/api/orders?table_id=${tableId}`);
+          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/orders?table_id=${tableId}`);
+          const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const list = await r.json();
           const latest = list?.[0];
@@ -136,8 +127,8 @@ export default function OrderSummary() {
     (async () => {
       try {
         setLoading(true);
-        console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/api/orders/${currentId}`);
-        const r = await fetch(`${API_BASE}/api/orders/${currentId}`);
+        console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/orders/${currentId}`);
+        const r = await fetch(`${API_BASE}/orders/${currentId}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const d = await r.json();
         setData(d);
@@ -160,7 +151,7 @@ export default function OrderSummary() {
       esRef.current.close();
       esRef.current = null;
     }
-    const streamUrl = `${API_BASE}/api/orders/${currentId}/stream`;
+    const streamUrl = `${API_BASE}/orders/${currentId}/stream`;
     console.debug("[OrderSummary] SSE URL:", streamUrl);
     let es;
     try {
@@ -226,8 +217,8 @@ export default function OrderSummary() {
               (async () => {
                 try {
                   setLoading(true);
-                  console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/api/orders/${currentId}`);
-                  const r = await fetch(`${API_BASE}/api/orders/${currentId}`);
+                  console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/orders/${currentId}`);
+                  const r = await fetch(`${API_BASE}/orders/${currentId}`);
                   if (!r.ok) throw new Error(`HTTP ${r.status}`);
                   const d = await r.json();
                   setData(d);

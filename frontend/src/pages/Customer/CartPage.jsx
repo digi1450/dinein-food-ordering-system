@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
+import API_BASE from "../../lib/apiBase";
 
-const API = import.meta.env.VITE_API;
 
 export default function CartPage() {
   const nav = useNavigate();
@@ -70,7 +70,7 @@ export default function CartPage() {
         })),
       };
 
-      const res = await fetch(`${API}/api/orders`, {
+      const res = await fetch(`${API_BASE}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

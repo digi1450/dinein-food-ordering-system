@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
+import API_BASE from "../../lib/apiBase";
 
-const API = import.meta.env.VITE_API || "http://127.0.0.1:5050";
 
 export default function AdminDashboard() {
   const nav = useNavigate();
@@ -35,7 +35,7 @@ export default function AdminDashboard() {
   // ---- Realtime orders (SSE feed) ----
   useEffect(() => {
     // ถ้า stream นี้ต้องใช้ auth ให้เปลี่ยนไปใช้ ?token=... ใน query (EventSource ใส่ header ไม่ได้)
-    const es = new EventSource(`${API}/api/orders/stream-all`);
+    const es = new EventSource(`${API_BASE}/orders/stream-all`);
     es.onmessage = (e) => {
       try { setOrders(JSON.parse(e.data)); } catch {}
     };

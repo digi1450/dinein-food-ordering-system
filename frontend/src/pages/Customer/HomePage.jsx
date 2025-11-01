@@ -1,13 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-
-// Prefer explicit VITE_API_BASE, then VITE_API, else fallback to 127.0.0.1:5050
-const RAW_BASE =
-  (import.meta.env && (import.meta.env.VITE_API_BASE || import.meta.env.VITE_API)) || "";
-const API =
-  typeof RAW_BASE === "string" && /^https?:\/\//.test(RAW_BASE)
-    ? RAW_BASE.replace(/\/+$/, "")
-    : `${location.protocol}//127.0.0.1:5050`;
+import API_BASE from "../../lib/apiBase";
 
 // Fixed visuals (images placed in frontend/public/images/)
 const VISUALS = [
@@ -78,7 +71,7 @@ export default function HomePage() {
     let alive = true;
     (async () => {
       try {
-        const url = `${API}/api/menu/categories?_=${Date.now()}`;
+        const url = `${API_BASE}/menu/categories?_=${Date.now()}`;
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load categories");
         const data = await res.json();

@@ -1,5 +1,5 @@
 // frontend/src/lib/api.js
-const API_BASE = import.meta.env.VITE_API || "http://127.0.0.1:5050";
+import API_BASE from "./apiBase";
 const DEFAULT_TIMEOUT = 10000; // 10s
 
 export function getToken() {
@@ -64,9 +64,10 @@ export async function apiFetch(
 
   // แนบ token อัตโนมัติเมื่อ:
   // - auth === true หรือ
-  // - auth === 'auto' และ path เริ่มด้วย /api/admin
-  const shouldAuth =
-    auth === true || (auth === "auto" && path.replace(API_BASE, "").startsWith("/api/admin"));
+  // - auth === 'auto' และ resource path เริ่มด้วย /admin (หลังตัด API_BASE ออก)
+  const rawPath = path.startsWith("http") ? new URL(path).pathname : path;
+  const relPath = rawPath.startsWith(API_BASE) ? rawPath.slice(API_BASE.length) : rawPath;
+  const shouldAuth = auth === true || (auth === "auto" && relPath.startsWith("/admin"));
   if (shouldAuth) {
     const token = getToken();
     if (token) h.Authorization = `Bearer ${token}`;
@@ -139,10 +140,10 @@ export const api = {
 
   // namespace สำหรับหลังบ้าน (บังคับ auth + prefix)
   admin: {
-    get: (p, o) => apiFetch(`/api/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "GET", auth: true }),
-    post: (p, body, o) => apiFetch(`/api/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "POST", body, auth: true }),
-    patch: (p, body, o) => apiFetch(`/api/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PATCH", body, auth: true }),
-    put: (p, body, o) => apiFetch(`/api/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PUT", body, auth: true }),
-    del: (p, o) => apiFetch(`/api/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "DELETE", auth: true }),
+    get: (p, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "GET", auth: true }),
+    post: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "POST", body, auth: true }),
+    patch: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PATCH", body, auth: true }),
+    put: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PUT", body, auth: true }),
+    del: (p, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "DELETE", auth: true }),
   },
 };

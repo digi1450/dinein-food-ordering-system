@@ -29,5 +29,6 @@ app.use("/api/payments", paymentRoutes);
 
 
 app.get("/", (_req, res) => res.send("Food POS API running"));
-app.listen(process.env.PORT, () => console.log("API on :", process.env.PORT));
 
+console.log("Environment loaded, PORT:", process.env.PORT);
+app.listen(process.env.PORT, () => console.log("API on :", process.env.PORT));

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
-
-const API = import.meta.env.VITE_API;
+import API_BASE from "../../lib/apiBase";
 
 export default function MenuPage() {
   const { search } = useLocation();
@@ -26,7 +25,7 @@ export default function MenuPage() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`${API}/api/menu/categories`);
+        const r = await fetch(`${API_BASE}/menu/categories`);
         const d = await r.json();
         setCats(Array.isArray(d) ? d : []);
       } catch {}
@@ -40,8 +39,8 @@ export default function MenuPage() {
       setErr(null);
       try {
         const url = catId
-          ? `${API}/api/menu?cat=${encodeURIComponent(catId)}`
-          : `${API}/api/menu`;
+          ? `${API_BASE}/menu?cat=${encodeURIComponent(catId)}`
+          : `${API_BASE}/menu`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to load menu");
         const data = await res.json();

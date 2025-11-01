@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-const API = import.meta.env.VITE_API || "http://127.0.0.1:5050";
+import API_BASE from "../../lib/apiBase";
 
 /* ปรับข้อมูลโต๊ะจาก API ให้เป็นรูปแบบเดียว */
 function normalizeTables(payload) {
@@ -38,7 +37,7 @@ export default function SelectTablePage() {
   setLoading(true);
   setErr(null);
   try {
-    const url = `${API}/api/tables?_=${Date.now()}`; // bust cache
+    const url = `${API_BASE}/tables?_=${Date.now()}`; // via Vite proxy (/api → 5050)
     const res = await fetch(url, {
       cache: "no-store",
       headers: {

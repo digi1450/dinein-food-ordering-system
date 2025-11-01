@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-const API = import.meta.env.VITE_API || "http://127.0.0.1:5050";
+import API_BASE from "../../lib/apiBase";
 
 export default function AdminLogin() {
   const nav = useNavigate();
@@ -20,7 +19,7 @@ export default function AdminLogin() {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 10000); // 10s timeout
 
-      const r = await fetch(`${API}/api/admin/login`, {
+      const r = await fetch(`${API_BASE}/admin/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -118,7 +117,7 @@ export default function AdminLogin() {
             </button>
 
             <p className="text-xs opacity-70 text-center mt-2">
-              API: {API.replace(/^https?:\/\//, "")}
+              API: {API_BASE.replace(/^https?:\/\//, "")}
             </p>
           </div>
         </div>
