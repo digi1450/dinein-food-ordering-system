@@ -13,6 +13,10 @@
 }
 
 html, body, #root {
+  -webkit-text-fill-color: inherit !important;
+}
+
+html, body, #root {
   height: 100%;
   width: 100%;
 }
@@ -25,6 +29,36 @@ body {
   background: transparent; /* ให้พื้นหลังมาจากหน้าระดับเพจ */
 }
 
+.os-card { background-color: rgb(255 255 255 / 1) !important; }
+
+/* --- OrderSummary scoped overrides (win over Tailwind important) --- */
+#os-summary .os-card {
+  background: #fff !important;
+  border: 1px solid rgba(15, 23, 42, 0.15) !important; /* slate-ish */
+  border-radius: 28px !important;
+  padding: 24px !important; /* บังคับให้ตัวหนังสือไม่ติดขอบ */
+  box-shadow: 0 20px 40px rgba(0,0,0,0.12) !important;
+}
+
+#os-summary .os-row {
+  background: #fff !important;
+  padding: 12px 16px !important;
+  /* NOTE: do NOT zero the border here so Tailwind `border-*` utilities can work */
+  margin: 0 !important;
+  border-radius: 12px !important; /* แถวมนนิดๆ สวยแบบการ์ด */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+}
+
+#os-summary .os-row.--no-border { border: 0 !important; }
+
+/* แถวรวมยอด ให้พื้นหลังอ่อนกว่านิดหน่อย */
+#os-summary .os-total {
+  background: #f8fafc !important;           /* เทาอ่อน */
+  padding: 12px 16px !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+}
 /* ปล่อยให้แต่ละหน้า/คอมโพเนนต์กำหนดเองด้วย Tailwind */
 a { text-decoration: inherit; color: inherit; }
 /*button { all: unset; cursor: pointer; }

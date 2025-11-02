@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 try { console.debug("[OrderSummary] API base:", API_BASE); } catch {}
 
@@ -8,6 +8,11 @@ const cleanId = (v) => {
   if (!s || s === "null" || s === "undefined" || s === "nan") return null;
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const num = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
 };
 
 const statusStyle = (s = "") => {
@@ -226,17 +231,24 @@ export default function OrderSummary() {
 
   const items = data?.items || [];
   const derivedTotal = useMemo(() => {
-    if (data?.total_amount != null && !Number.isNaN(Number(data.total_amount))) {
+    if (data?.total_amount != null && Number.isFinite(Number(data.total_amount))) {
       return Number(data.total_amount);
     }
     return items.reduce((sum, it) => {
-      const sub =
-        it?.subtotal != null
-          ? Number(it.subtotal)
-          : Number(it.price) * Number(it.quantity);
-      return sum + (Number.isFinite(sub) ? sub : 0);
+      const qty = num(it?.quantity, 0);
+      const preferred = it?.subtotal != null ? num(it.subtotal, NaN) : NaN;
+      const unit = num(it?.unit_price, NaN);
+      const price = num(it?.price, NaN);
+      const line = Number.isFinite(preferred)
+        ? preferred
+        : Number.isFinite(unit)
+        ? unit * qty
+        : Number.isFinite(price)
+        ? price * qty
+        : 0;
+      return sum + line;
     }, 0);
-  }, [data, items]);
+  }, [data?.total_amount, items]);
 
   // --- safe mappings based on current response shape ---
   const orderNo  = data?.order_id ?? currentId ?? "—";
@@ -246,40 +258,17 @@ export default function OrderSummary() {
   const statusText = String(statusRaw).toUpperCase();
 
   return (
-    <div className="min-h-screen w-full text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fff,#ffe6c4)]">
-      <div className="max-w-3xl mx-auto px-6 py-10">
+    <div id="os-summary" className="min-h-screen w-full text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fee,#f6c4)]" style={{ WebkitTextFillColor: 'inherit' }}>
+      <div className="max-w-3xl mx-auto px-8 md:px-12 py-12">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight">Order Summary</h1>
-          <button
-            onClick={() => {
-              const id = cleanId(currentId);
-              if (!id) return;
-              (async () => {
-                try {
-                  setLoading(true);
-                  const r = await fetch(`${API_BASE}/orders/${id}`);
-                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                  const d = await r.json();
-                  setData(d);
-                  setLastAt(new Date());
-                } catch (e) {
-                  console.error(e);
-                  setError("Unsuccessful order reload");
-                } finally {
-                  setLoading(false);
-                }
-              })();
-            }}
-            className="px-4 py-2 rounded-xl bg-teal-500 text-white font-medium hover:bg-teal-600 shadow-md disabled:opacity-60"
-            disabled={loading}
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-
-        <div className="text-sm text-slate-600 mb-8">
-          {lastAt ? `Last updated: ${lastAt.toLocaleTimeString()}` : "—"}
+          <p className="text-sm text-slate-600 mt-2">
+            {lastAt ? `Last updated: ${lastAt.toLocaleTimeString()}` : "Last updated: —"}
+          </p>
+          <p className="text-base font-medium text-slate-700 mt-1">
+            {`Order #${orderNo} - Table ${tableNo}`}
+          </p>
         </div>
 
         {loading ? (
@@ -291,64 +280,73 @@ export default function OrderSummary() {
         ) : (
           <>
             {/* Order card */}
-            <div className="p-6 rounded-2xl bg-white bg-opacity-90 border border-slate-200 shadow-xl">
-              <div className="flex justify-between items-center mb-3">
-                <div>
-                  <div className="font-semibold text-lg">Order #{orderNo}</div>
-                  <div className="text-slate-500 text-sm">Table {tableNo}</div>
-                </div>
-                <span className={`border px-3 py-1 rounded-full text-sm font-medium ${statusStyle(statusRaw)}`}>
+            <div
+              className="os-card border border-slate-200 shadow-2xl px-8 md:px-12 py-10 rounded-[28px] !bg-white !bg-opacity-100"
+              style={{ maxWidth: '680px', marginLeft: 'auto', marginRight: 'auto' }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-500">Current status</p>
+                <span
+                  className={`inline-flex items-center justify-center rounded-full border-2 px-6 py-2.5 min-h-[40px] min-w-[80px] leading-none text-sm sm:text-base font-semibold tracking-wide uppercase ${statusStyle(statusRaw)}`}
+                  style={{ WebkitTextFillColor: "inherit" }}
+                >
                   {statusText}
                 </span>
               </div>
 
-              <p className="text-slate-600 mb-4">Your order has been placed successfully!</p>
+              <h2 className="text-xl font-semibold text-slate-900 mt-4">Your order has been placed successfully!</h2>
+              <p className="text-sm text-slate-500 mt-2">We'll keep this page updated as it progresses.</p>
 
               {/* Items */}
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="grid grid-cols-12 bg-slate-50 text-slate-600 text-sm">
-                  <div className="col-span-9 px-4 py-2">Item</div>
-                  <div className="col-span-3 px-4 py-2 text-right">Amount</div>
-                </div>
-
+              <div className="mt-6 space-y-2">
                 {items.map((it) => {
+                  const qty = num(it?.quantity, 0);
+                  // Prefer explicit subtotal; otherwise try unit_price*qty then price*qty
                   const lineSubtotal =
-                    it?.subtotal != null
-                      ? Number(it.subtotal)
-                      : Number(it.price) * Number(it.quantity);
+                    (it?.subtotal != null ? num(it.subtotal, NaN) : NaN) ??
+                    NaN;
+                  const fallbackUnit = num(it?.unit_price, NaN);
+                  const fallbackPrice = num(it?.price, NaN);
+                  const computed = Number.isFinite(lineSubtotal)
+                    ? lineSubtotal
+                    : Number.isFinite(fallbackUnit)
+                    ? fallbackUnit * qty
+                    : Number.isFinite(fallbackPrice)
+                    ? fallbackPrice * qty
+                    : 0;
+
                   return (
-                    <div key={`${it.food_id}-${it.food_name}`} className="grid grid-cols-12 border-t border-slate-200 bg-white">
-                      <div className="col-span-9 px-4 py-3">
-                        <div className="font-medium">{it.food_name}</div>
-                        <div className="text-sm opacity-60">x{it.quantity}</div>
+                    <div
+                      key={`${it.food_id}-${it.food_name}`}
+                      className="os-row flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm"
+                    >
+                      <div>
+                        <div className="font-medium text-slate-900">{it.food_name}</div>
+                        <div className="text-xs text-slate-500">×{qty}</div>
                       </div>
-                      <div className="col-span-3 px-4 py-3 text-right">
-                        ฿{Number(lineSubtotal || 0).toFixed(2)}
-                      </div>
+                      <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
                     </div>
                   );
                 })}
 
-                <div className="grid grid-cols-12 bg-slate-50 border-t border-slate-200">
-                  <div className="col-span-9 px-4 py-3 text-right font-semibold">Total:</div>
-                  <div className="col-span-3 px-4 py-3 text-right font-semibold">
-                    ฿{derivedTotal.toFixed(2)}
-                  </div>
+                <div className="os-total flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                  <div className="font-semibold text-slate-700">Total</div>
+                  <div className="font-semibold">฿{derivedTotal.toFixed(2)}</div>
                 </div>
               </div>
 
-              <a
-                href={`/home?table=${data?.table_id ?? ""}`}
-                className="inline-block mt-6 px-5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 shadow-sm font-medium"
+              <Link
+                to={`/home?table=${data?.table_id ?? ""}`}
+                className="mt-7 block mx-auto w-[280px] md:w-[320px] text-center px-6 py-3 rounded-full bg-slate-100 text-slate-900 font-semibold border border-slate-200 shadow-inner hover:bg-slate-200 transition"
               >
                 Back to Menu
-              </a>
+              </Link>
             </div>
 
             {/* Past orders */}
             <div className="mt-10">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold text-slate-800">Past orders for this table</h2>
+              <div className="flex justify-between items-center mb-3">
+                <h2 className="text-lg font-semibold text-slate-800">Past orders for this table</h2>
                 <button
                   onClick={async () => {
                     const tableId =
@@ -364,12 +362,13 @@ export default function OrderSummary() {
                         .filter(o => cleanId(o.order_id) !== cleanId(currentId))
                         .slice(0, 10);
                       setRecent(filtered);
-                    } catch (_) {
+                    } catch (err) {
+                      setError("Failed to load past orders");
                     } finally {
                       setLoadingPast(false);
                     }
                   }}
-                  className="px-4 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium shadow-sm"
+                  className="text-sm font-medium text-teal-600 hover:text-teal-700"
                   disabled={loadingPast}
                 >
                   {loadingPast ? "Refreshing…" : "Refresh"}
@@ -381,28 +380,27 @@ export default function OrderSummary() {
               {!loadingPast && (!recent || recent.length === 0) ? (
                 <div className="opacity-70">No previous orders for this table.</div>
               ) : (
-                <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 overflow-hidden bg-white bg-opacity-80">
+                <div className="space-y-2">
                   {recent.map((o) => (
-                    <div key={o.order_id} className="flex justify-between items-center p-3 hover:bg-slate-50 transition">
+                    <Link
+                      key={o.order_id}
+                      to={`/summary/${Number(o.order_id)}`}
+                      className="flex items-center justify-between rounded-2xl os-card px-4 py-3 shadow-sm cursor-pointer hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
+                      aria-label={`View order #${o.order_id}`}
+                    >
                       <div className="flex items-center gap-3">
-                        <div className="text-sm text-slate-600">#{o.order_id}</div>
-                        <div className="text-sm text-slate-600">
-                          {o.table_label ? `Table ${o.table_label}` : `Table ${o.table_id}`}
+                        <div className="text-sm font-semibold text-slate-700">
+                          #{o.order_id} {o.table_label ? `Table ${o.table_label}` : `Table ${o.table_id}`}
                         </div>
-                        <span className="text-xs px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600">
+                        <span
+                          className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide uppercase ${statusStyle(o.status)}`}
+                          style={{ WebkitTextFillColor: "inherit" }}
+                        >
                           {String(o.status || "").toUpperCase()}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-sm text-slate-600">฿{Number(o.total_amount || 0).toFixed(2)}</div>
-                        <a
-                          href={`/summary/${Number(o.order_id)}`}
-                          className="text-sm px-4 py-1 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 shadow-sm font-medium"
-                        >
-                          View
-                        </a>
-                      </div>
-                    </div>
+                      <div className="text-sm font-semibold text-slate-700">฿{Number(o.total_amount || 0).toFixed(2)}</div>
+                    </Link>
                   ))}
                 </div>
               )}
@@ -410,6 +408,6 @@ export default function OrderSummary() {
           </>
         )}
       </div>
-    </div>
+  </div>
   );
 }
