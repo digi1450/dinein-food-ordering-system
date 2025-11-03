@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
-try { console.debug("[OrderSummary] API base:", API_BASE); } catch {}
 
 const cleanId = (v) => {
   const s = String(v ?? "").trim().toLowerCase();
@@ -15,21 +14,39 @@ const num = (v, d = 0) => {
   return Number.isFinite(n) ? n : d;
 };
 
+// pick the first non-empty trimmed string from a set of keys on an object
+const pickText = (obj, keys = []) => {
+  for (const k of keys) {
+    const v = obj && obj[k];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return null;
+};
+
+// convenience to pick from data or nested data.order
+const pickOrderField = (data, keys = []) => {
+  return (
+    pickText(data, keys) ||
+    pickText(data && data.order, keys)
+  );
+};
+
 const statusStyle = (s = "") => {
   const k = s.toLowerCase();
-  if (["pending"].includes(k)) return "bg-yellow-500/20 text-yellow-300 border-yellow-400/40";
+  if (["pending"].includes(k)) return "bg-amber-200 text-slate-800 ring-1 ring-amber-300/60";
   if (["accepted", "preparing", "cooking"].includes(k))
-    return "bg-blue-500/20 text-blue-300 border-blue-400/40";
-  if (["served"].includes(k)) return "bg-purple-500/20 text-purple-300 border-purple-400/40";
+    return "bg-blue-200 text-slate-800 ring-1 ring-blue-300/60";
+  if (["served"].includes(k)) return "bg-purple-200 text-slate-800 ring-1 ring-purple-300/60";
   if (["completed", "paid"].includes(k))
-    return "bg-green-500/20 text-green-300 border-green-400/40";
+    return "bg-green-200 text-slate-800 ring-1 ring-green-300/60";
   if (["cancelled", "canceled"].includes(k))
-    return "bg-red-500/20 text-red-300 border-red-400/40";
-  return "bg-gray-500/20 text-gray-300 border-gray-400/40";
+    return "bg-red-200 text-slate-900 ring-1 ring-red-300/60";
+  return "bg-gray-200 text-slate-800 ring-1 ring-gray-300/60";
 };
 
 export default function OrderSummary() {
-  const [error, setError] = useState("");
   const esRef = useRef(null);                    // เก็บ EventSource ไว้ปิดตอน unmount
   const { orderId } = useParams();
   const [params] = useSearchParams(); // เผื่อในอนาคตใช้ code=? ตรวจสิทธิ์
@@ -39,8 +56,26 @@ export default function OrderSummary() {
   const [currentId, setCurrentId] = useState(null); // resolved order_id to use
   const [recent, setRecent] = useState([]);     // ประวัติออเดอร์โต๊ะนี้ (ล่าสุด→เก่า)
   const [loadingPast, setLoadingPast] = useState(false);
+  const [error, setError] = useState("");
 
   const savedOrderId = useMemo(() => {
+    // Prefer per-table remembered order id if a table id is resolvable; otherwise fall back to legacy keys
+    try {
+      // Try to infer a table id from URL/data/localStorage without reordering declarations
+      const rawTableId =
+        (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('table') : null) ??
+        localStorage.getItem('last_table_id');
+      const tId = (() => {
+        const s = String(rawTableId ?? '').trim();
+        const n = Number(s);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      })();
+      if (tId) {
+        const perTable = Number(localStorage.getItem(`last_order_id_by_table_${tId}`));
+        if (Number.isFinite(perTable) && perTable > 0) return perTable;
+      }
+    } catch {}
+
     const keys = ["last_order_id", "order_id", "currentOrderId"];
     for (const k of keys) {
       const v = Number(localStorage.getItem(k));
@@ -62,9 +97,23 @@ export default function OrderSummary() {
     return null;
   }, []);
 
+  // Resolve a single source of truth for table id to use across links/queries
+  const tableIdResolved = useMemo(() => {
+    const fromData = cleanId(data?.table_id);
+    const fromQuery = cleanId(tableIdParam);
+    const fromSaved = cleanId(savedTableId);
+    return fromData ?? fromQuery ?? fromSaved ?? null;
+  }, [data?.table_id, tableIdParam, savedTableId]);
+
+  const savedOrderIdForResolvedTable = useMemo(() => {
+    const t = cleanId(tableIdResolved);
+    if (!t) return null;
+    const v = Number(localStorage.getItem(`last_order_id_by_table_${t}`));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }, [tableIdResolved]);
+
   // 1) Resolve which order_id to show: priority => route :orderId -> ?order= -> savedOrderId -> latest by ?table=
   useEffect(() => {
-    console.debug("[OrderSummary] resolve id from:", { routeParam: orderId, queryOrder: orderIdParam, savedOrderId, tableIdParam, savedTableId });
     const routeId  = cleanId(orderId);
     const qOrderId = cleanId(orderIdParam);
     const savedId  = cleanId(savedOrderId);
@@ -74,6 +123,8 @@ export default function OrderSummary() {
     // priority 1–3
     if (routeId) { setCurrentId(routeId); return; }
     if (qOrderId) { setCurrentId(qOrderId); return; }
+    const savedIdByTable = cleanId(savedOrderIdForResolvedTable);
+    if (savedIdByTable) { setCurrentId(savedIdByTable); return; }
     if (savedId)  { setCurrentId(savedId);  return; }
 
     // priority 4: latest order of explicit ?table=
@@ -81,7 +132,6 @@ export default function OrderSummary() {
       (async () => {
         try {
           setLoading(true);
-          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/orders?table_id=${tableIdClean}`);
           const r = await fetch(`${API_BASE}/orders?table_id=${tableIdClean}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const list = await r.json();
@@ -93,7 +143,6 @@ export default function OrderSummary() {
           }
         } catch (e) {
           console.error(e);
-          setError("ไม่พบออเดอร์ของโต๊ะนี้");
         } finally {
           setLoading(false);
         }
@@ -106,7 +155,6 @@ export default function OrderSummary() {
       (async () => {
         try {
           setLoading(true);
-          console.debug("[OrderSummary] fetch list URL:", `${API_BASE}/orders?table_id=${savedTableIdClean}`);
           const r = await fetch(`${API_BASE}/orders?table_id=${savedTableIdClean}`);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const list = await r.json();
@@ -118,7 +166,6 @@ export default function OrderSummary() {
           }
         } catch (e) {
           console.error(e);
-          setError("ไม่พบออเดอร์ของโต๊ะนี้ (saved)");
         } finally {
           setLoading(false);
         }
@@ -126,8 +173,7 @@ export default function OrderSummary() {
       return;
     }
 
-    // if nothing matches, show error and stop loading spinner
-    setError("ไม่พบ order ที่ต้องแสดง");
+    // if nothing matches, stop loading spinner
     setLoading(false);
   }, [orderId, orderIdParam, savedOrderId, tableIdParam, savedTableId]);
 
@@ -138,17 +184,42 @@ export default function OrderSummary() {
     (async () => {
       try {
         setLoading(true);
-        console.debug("[OrderSummary] fetch order URL:", `${API_BASE}/orders/${id}`);
         const r = await fetch(`${API_BASE}/orders/${id}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const d = await r.json();
+        // If a table filter is present and this order doesn't belong to that table, redirect to that table's latest order
+        const tResolved = cleanId(tableIdResolved);
+        if (tResolved && cleanId(d?.table_id) !== tResolved) {
+          try {
+            const r2 = await fetch(`${API_BASE}/orders?table_id=${tResolved}`);
+            if (r2.ok) {
+              const list2 = await r2.json();
+              const latestForTable = list2?.[0];
+              if (latestForTable?.order_id) {
+                setCurrentId(cleanId(latestForTable.order_id));
+                return; // stop here; next effect run will load the correct order
+              }
+            }
+          } catch {}
+          // If no orders for that table, clear data but keep page stable
+          setData(null);
+          setLoading(false);
+          return;
+        }
         setData(d);
+        setError("");
         setLastAt(new Date());
         // keep latest order id for future visits
-        try { localStorage.setItem("last_order_id", String(d?.order_id || id)); } catch {}
+        try {
+          localStorage.setItem("last_order_id", String(d?.order_id || id));
+          const tForSave = cleanId(d?.table_id);
+          if (tForSave) {
+            localStorage.setItem(`last_order_id_by_table_${tForSave}`, String(d?.order_id || id));
+            localStorage.setItem('last_table_id', String(tForSave));
+          }
+        } catch {}
       } catch (e) {
         console.error(e);
-        setError("โหลดออเดอร์ไม่สำเร็จ");
       } finally {
         setLoading(false);
       }
@@ -157,12 +228,8 @@ export default function OrderSummary() {
 
   // 2.5) Load recent orders by table (exclude current)
   useEffect(() => {
-    const resolvedTableId =
-      cleanId(data?.table_id) ||
-      cleanId(params.get("table")) ||
-      cleanId(localStorage.getItem("last_table_id"));
-
-    if (!resolvedTableId) {
+    const tableId = Number(tableIdResolved);
+    if (!Number.isFinite(tableId) || tableId <= 0) {
       setRecent([]);
       return;
     }
@@ -171,12 +238,11 @@ export default function OrderSummary() {
     (async () => {
       try {
         setLoadingPast(true);
-        const r = await fetch(`${API_BASE}/orders?table_id=${resolvedTableId}`);
+        const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const list = (await r.json()) || [];
         const filtered = list
-          .filter(o => cleanId(o.order_id) !== cleanId(currentId))
-          .slice(0, 10);
+          .filter(o => Number(o.order_id) !== Number(currentId));
         if (!cancelled) setRecent(filtered);
       } catch (e) {
         if (!cancelled) setRecent([]);
@@ -186,7 +252,7 @@ export default function OrderSummary() {
     })();
 
     return () => { cancelled = true; };
-  }, [data?.table_id, currentId]);
+  }, [tableIdResolved, currentId]);
 
   // Realtime via SSE (follow currentId)
   useEffect(() => {
@@ -197,13 +263,11 @@ export default function OrderSummary() {
       esRef.current = null;
     }
     const streamUrl = `${API_BASE}/orders/${id}/stream`;
-    console.debug("[OrderSummary] SSE URL:", streamUrl);
     let es;
     try {
       es = new EventSource(streamUrl, { withCredentials: false });
     } catch (e) {
       console.error("[OrderSummary] EventSource init error. URL:", streamUrl, e);
-      setError("เชื่อมต่อสตรีมไม่สำเร็จ (ตรวจค่า VITE_API_BASE)");
       return;
     }
     esRef.current = es;
@@ -257,8 +321,20 @@ export default function OrderSummary() {
   const statusRaw = data?.status ?? data?.order?.status ?? "unknown";
   const statusText = String(statusRaw).toUpperCase();
 
+  // --- customer metadata (best-effort across possible field names) ---
+  const customerName = pickOrderField(data, [
+    "customer_name", "name", "contact_name", "customerName"
+  ]);
+  const customerPhone = pickOrderField(data, [
+    "customer_phone", "phone", "contact_phone", "tel"
+  ]);
+  const customerNote = pickOrderField(data, [
+    "note", "notes", "description", "comment", "remarks", "order_note", "additional_info"
+  ]);
+
   return (
-    <div id="os-summary" className="min-h-screen w-full text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fee,#f6c4)]" style={{ WebkitTextFillColor: 'inherit' }}>
+    <div
+      className="min-h-screen w-full text-slate-900 bg-[radial-gradient(900px_600px_at_0%_-10%,#e8f0ff,transparent),radial-gradient(900px_600px_at_100%_-10%,#ffe6eb,transparent),linear-gradient(180deg,#f9fbff,#ffe9f0)]">
       <div className="max-w-3xl mx-auto px-8 md:px-12 py-12">
         {/* Header */}
         <div className="mb-8">
@@ -271,6 +347,12 @@ export default function OrderSummary() {
           </p>
         </div>
 
+        {error && (
+          <div className="mt-4 rounded-xl bg-red-50 text-red-700 ring-1 ring-red-200 px-4 py-3 text-sm">
+            {error}
+          </div>
+        )}
+
         {loading ? (
           <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">Loading...</div>
         ) : !data ? (
@@ -281,26 +363,41 @@ export default function OrderSummary() {
           <>
             {/* Order card */}
             <div
-              className="os-card border border-slate-200 shadow-2xl px-8 md:px-12 py-10 rounded-[28px] !bg-white !bg-opacity-100"
-              style={{ maxWidth: '680px', marginLeft: 'auto', marginRight: 'auto' }}
+              className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto"
             >
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-500">Current status</p>
                 <span
-                  className={`inline-flex items-center justify-center rounded-full border-2 px-6 py-2.5 min-h-[40px] min-w-[80px] leading-none text-sm sm:text-base font-semibold tracking-wide uppercase ${statusStyle(statusRaw)}`}
-                  style={{ WebkitTextFillColor: "inherit" }}
-                >
+                  className={`inline-flex items-center justify-center rounded-full px-5 py-2 min-h-[40px] min-w-[96px] leading-none text-sm font-semibold uppercase ${statusStyle(statusRaw)}`}>
                   {statusText}
                 </span>
               </div>
 
               <h2 className="text-xl font-semibold text-slate-900 mt-4">Your order has been placed successfully!</h2>
               <p className="text-sm text-slate-500 mt-2">We'll keep this page updated as it progresses.</p>
+              {(customerName || customerPhone || customerNote) && (
+                <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-black/5">
+                  <div className="space-y-1">
+                    {customerName && (
+                      <div><span className="font-medium text-slate-700">Name:</span> {customerName}</div>
+                    )}
+                    {customerPhone && (
+                      <div><span className="font-medium text-slate-700">Phone:</span> {customerPhone}</div>
+                    )}
+                    {customerNote && (
+                      <div className="text-slate-600 break-words whitespace-pre-wrap"><span className="font-medium text-slate-700">Note:</span> {customerNote}</div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Items */}
               <div className="mt-6 space-y-2">
                 {items.map((it) => {
                   const qty = num(it?.quantity, 0);
+                  const itemNote = pickText(it, [
+                    "note", "notes", "comment", "comments", "special_request", "description", "options_note"
+                  ]);
                   // Prefer explicit subtotal; otherwise try unit_price*qty then price*qty
                   const lineSubtotal =
                     (it?.subtotal != null ? num(it.subtotal, NaN) : NaN) ??
@@ -318,26 +415,29 @@ export default function OrderSummary() {
                   return (
                     <div
                       key={`${it.food_id}-${it.food_name}`}
-                      className="os-row flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm"
+                      className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5"
                     >
                       <div>
                         <div className="font-medium text-slate-900">{it.food_name}</div>
                         <div className="text-xs text-slate-500">×{qty}</div>
+                        {itemNote && (
+                          <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">{itemNote}</div>
+                        )}
                       </div>
                       <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
                     </div>
                   );
                 })}
 
-                <div className="os-total flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-black/5">
                   <div className="font-semibold text-slate-700">Total</div>
                   <div className="font-semibold">฿{derivedTotal.toFixed(2)}</div>
                 </div>
               </div>
 
               <Link
-                to={`/home?table=${data?.table_id ?? ""}`}
-                className="mt-7 block mx-auto w-[280px] md:w-[320px] text-center px-6 py-3 rounded-full bg-slate-100 text-slate-900 font-semibold border border-slate-200 shadow-inner hover:bg-slate-200 transition"
+                to={`/home?table=${tableIdResolved ?? ""}`}
+                className="mt-7 block mx-auto w-[280px] md:w-[320px] text-center px-6 py-3 rounded-full bg-slate-100 text-slate-900 font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-black/5 hover:bg-slate-200 transition"
               >
                 Back to Menu
               </Link>
@@ -349,20 +449,17 @@ export default function OrderSummary() {
                 <h2 className="text-lg font-semibold text-slate-800">Past orders for this table</h2>
                 <button
                   onClick={async () => {
-                    const tableId =
-                      cleanId(data?.table_id) ||
-                      cleanId(params.get("table")) ||
-                      cleanId(localStorage.getItem("last_table_id"));
-                    if (!tableId) return;
+                    const tableId = Number(tableIdResolved);
+                    if (!Number.isFinite(tableId) || tableId <= 0) return;
                     try {
                       setLoadingPast(true);
                       const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
                       const list = (await r.json()) || [];
                       const filtered = list
-                        .filter(o => cleanId(o.order_id) !== cleanId(currentId))
-                        .slice(0, 10);
+                        .filter(o => Number(o.order_id) !== Number(currentId));
                       setRecent(filtered);
                     } catch (err) {
+                      console.error("[OrderSummary] Manual past orders refresh failed", err);
                       setError("Failed to load past orders");
                     } finally {
                       setLoadingPast(false);
@@ -380,29 +477,39 @@ export default function OrderSummary() {
               {!loadingPast && (!recent || recent.length === 0) ? (
                 <div className="opacity-70">No previous orders for this table.</div>
               ) : (
-                <div className="space-y-2">
-                  {recent.map((o) => (
-                    <Link
-                      key={o.order_id}
-                      to={`/summary/${Number(o.order_id)}`}
-                      className="flex items-center justify-between rounded-2xl os-card px-4 py-3 shadow-sm cursor-pointer hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
-                      aria-label={`View order #${o.order_id}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm font-semibold text-slate-700">
-                          #{o.order_id} {o.table_label ? `Table ${o.table_label}` : `Table ${o.table_id}`}
+                <>
+                  <div className="space-y-2">
+                    {recent.map((o) => (
+                      <Link
+                        key={o.order_id}
+                        to={`/summary/${Number(o.order_id)}?table=${tableIdResolved ?? ""}`}
+                        className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5 cursor-pointer hover:brightness-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
+                        aria-label={`View order #${o.order_id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="text-sm font-semibold text-slate-700">
+                            #{o.order_id} {o.table_label ? `Table ${o.table_label}` : `Table ${o.table_id}`}
+                          </div>
+                          <span
+                            className={`inline-flex items-center justify-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase ${statusStyle(o.status)}`}>
+                            {String(o.status || "").toUpperCase()}
+                          </span>
                         </div>
-                        <span
-                          className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide uppercase ${statusStyle(o.status)}`}
-                          style={{ WebkitTextFillColor: "inherit" }}
-                        >
-                          {String(o.status || "").toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-sm font-semibold text-slate-700">฿{Number(o.total_amount || 0).toFixed(2)}</div>
+                        <div className="text-sm font-semibold text-slate-700">฿{Number(o.total_amount || 0).toFixed(2)}</div>
+                      </Link>
+                    ))}
+                  </div>
+
+                  {/* Checkout button pinned under the list, aligned right */}
+                  <div className="pt-4 flex justify-end">
+                    <Link
+                      to={`/checkout?table=${tableIdResolved ?? ""}`}
+                      className="inline-flex items-center gap-2 rounded-full bg-white text-red-600 px-6 py-2.5 text-sm font-semibold shadow-md ring-1 ring-red-200 hover:bg-red-50 hover:!text-red-700 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400"
+                    >
+                      Checkout
                     </Link>
-                  ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           </>

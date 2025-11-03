@@ -15,6 +15,9 @@ async function getOrderFlat(orderId) {
        o.table_id,
        t.table_label,
        o.status,
+       o.customer_name,
+       o.phone,
+       o.notes,
        o.created_at AS order_date,
        o.total_amount
      FROM orders o
@@ -48,6 +51,9 @@ async function getOrderFlat(orderId) {
     order_id: orderRows[0].order_id,
     table_id: orderRows[0].table_id,
     table_label: orderRows[0].table_label ?? null,
+    customer_name: orderRows[0].customer_name ?? null,
+    phone: orderRows[0].phone ?? null,
+    notes: orderRows[0].notes ?? null,
     status: orderRows[0].status,
     order_date: orderRows[0].order_date,
     items: itemRows,

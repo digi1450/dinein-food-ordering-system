@@ -37,14 +37,7 @@ export default function SelectTablePage() {
   setLoading(true);
   setErr(null);
   try {
-    const url = `${API_BASE}/tables?_=${Date.now()}`; // via Vite proxy (/api → 5050)
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
-    });
+    const res = await fetch(`${API_BASE}/tables`);
     if (!res.ok) throw new Error("Failed to load tables");
     const data = await res.json();
     const list = normalizeTables(data).filter((t) => Number.isFinite(t.table_id));
@@ -154,7 +147,6 @@ export default function SelectTablePage() {
                                shadow-[0_8px_16px_rgba(0,0,0,0.08)] hover:shadow-[0_12px_20px_rgba(0,0,0,0.12)]
                                ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1
                                outline-none isolation-isolate"
-                    style={{ backgroundColor: '#ffffff' }}
                   >
 
                   {/* Content */}

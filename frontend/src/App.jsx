@@ -6,6 +6,8 @@ import CartPage from "./pages/Customer/CartPage";
 import OrderSummary from "./pages/Customer/OrderSummary";
 import AdminLogin from "./pages/Admin/AdminLogin.jsx";
 import AdminDashboard from "./pages/Admin/AdminDashboard.jsx";
+import CheckoutSummary from "./pages/Customer/CheckoutSummary.jsx";
+import CheckoutSuccess from "./pages/Customer/CheckoutSuccess.jsx";
 
 export default function App() {
   return (
@@ -16,6 +18,8 @@ export default function App() {
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/summary/:orderId" element={<OrderSummary />} />
+        <Route path="/checkout" element={<CheckoutSummary />} />
+        <Route path="/checkout/success" element={<CheckoutSuccess />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
       </Routes>

@@ -30,6 +30,7 @@ export default function CartPage() {
   };
 
   const priceOf = (it) => Number(it.price ?? it.unit_price ?? 0);
+  const formatPrice = (n) => `฿${Number(n || 0).toFixed(2)}`;
 
   const total = useMemo(
     () => cart.reduce((sum, it) => sum + priceOf(it) * (Number(it.quantity) || 1), 0),
@@ -101,108 +102,127 @@ export default function CartPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 text-white">
-      <h1 className="text-2xl font-bold mb-4">Your Cart — Table {tableId || "?"}</h1>
+    <div className="min-h-screen w-full bg-[radial-gradient(800px_600px_at_-10%_-5%,#fce0ff,transparent),radial-gradient(900px_650px_at_110%_0%,#ffe7cc,transparent),linear-gradient(180deg,#fef7ff,#f3f8ff)] text-slate-900">
+      <div className="max-w-3xl mx-auto px-6 py-10">
+        <h1 className="text-3xl font-bold tracking-tight">Your Cart</h1>
+        <p className="text-sm text-slate-600 mt-1 mb-6">Table {tableId || "?"}</p>
 
-      {!cart.length ? (
-        <div className="opacity-80">Your cart is empty.</div>
-      ) : (
-        <div className="space-y-3">
-          {cart.map((it) => {
-            const unit = priceOf(it);
-            const qty = Number(it.quantity) || 1;
-            const sub = unit * qty;
+        {!cart.length ? (
+          <div className="rounded-3xl bg-white ring-1 ring-slate-200 px-6 py-8 text-center shadow-sm">
+            <div className="text-base text-slate-600">Your cart is empty.</div>
+            <Link
+              to={`/menu?table=${tableId}`}
+              className="mt-4 inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-slate-900 shadow-sm hover:bg-slate-50"
+            >
+              Back to Menu
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {cart.map((it) => {
+              const unit = priceOf(it);
+              const qty = Number(it.quantity) || 1;
+              const sub = unit * qty;
 
-            return (
-              <div key={it.food_id} className="border rounded p-3 flex items-center justify-between">
-                <div>
-                  <div className="font-semibold">{it.food_name}</div>
-                  <div className="text-sm opacity-70">฿{unit.toFixed(2)}</div>
+              return (
+                <div
+                  key={it.food_id}
+                  className="rounded-3xl bg-white ring-1 ring-slate-200 p-4 md:p-5 flex items-center justify-between shadow-sm"
+                >
+                  <div>
+                    <div className="font-semibold">{it.food_name}</div>
+                    <div className="text-sm opacity-70">฿{unit.toFixed(2)}</div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      aria-label="decrease quantity"
+                      onClick={() => updateQty(it.food_id, -1)}
+                      className="size-9 inline-flex items-center justify-center rounded-full border border-slate-300 bg-white hover:bg-slate-50"
+                    >
+                      −
+                    </button>
+                    <div className="w-10 text-center font-medium">{qty}</div>
+                    <button
+                      aria-label="increase quantity"
+                      onClick={() => updateQty(it.food_id, +1)}
+                      className="size-9 inline-flex items-center justify-center rounded-full border border-slate-300 bg-white hover:bg-slate-50"
+                    >
+                      +
+                    </button>
+
+                    <div className="w-24 text-right font-semibold">{formatPrice(sub)}</div>
+
+                    <button
+                      onClick={() => removeItem(it.food_id)}
+                      className="ml-3 text-red-600 hover:text-red-700 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
+              );
+            })}
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateQty(it.food_id, -1)}
-                    className="px-2 py-1 border rounded"
-                  >
-                    −
-                  </button>
-                  <div className="w-8 text-center">{qty}</div>
-                  <button
-                    onClick={() => updateQty(it.food_id, +1)}
-                    className="px-2 py-1 border rounded"
-                  >
-                    +
-                  </button>
+            <div className="rounded-3xl bg-white ring-1 ring-slate-200 px-5 py-4 mt-4 flex items-center justify-between shadow-sm">
+              <div className="text-lg font-semibold text-slate-700">Total</div>
+              <div className="text-xl font-bold">{formatPrice(total)}</div>
+            </div>
+          </div>
+        )}
 
-                  <div className="w-20 text-right">฿{sub.toFixed(2)}</div>
-
-                  <button onClick={() => removeItem(it.food_id)} className="ml-3 text-red-400">
-                    Remove
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-
-          <div className="flex justify-between items-center border-t pt-3">
-            <div className="text-xl font-bold">Total</div>
-            <div className="text-xl font-bold">฿{total.toFixed(2)}</div>
+        <div className="mt-6 grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm opacity-80 mb-1">
+              Name (optional — for take-home)
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+              placeholder="e.g., John"
+            />
+          </div>
+          <div>
+            <label className="block text-sm opacity-80 mb-1">
+              Phone (optional — for take-home)
+            </label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+              placeholder="08x-xxx-xxxx"
+            />
           </div>
         </div>
-      )}
 
-      <div className="mt-6 grid sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm opacity-80 mb-1">
-            Name (optional — for take-home)
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full bg-transparent border rounded px-3 py-2"
-            placeholder="e.g., John"
+        <div className="mt-3">
+          <label className="block text-sm opacity-80 mb-1">Notes</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+            rows={3}
+            placeholder="no spicy, extra sauce, etc."
           />
         </div>
-        <div>
-          <label className="block text-sm opacity-80 mb-1">
-            Phone (optional — for take-home)
-          </label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full bg-transparent border rounded px-3 py-2"
-            placeholder="08x-xxx-xxxx"
-          />
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to={`/menu?table=${tableId}`}
+            className="px-5 py-2 rounded-full border border-slate-300 bg-white/90 shadow-sm hover:bg-white"
+          >
+            Back to Menu
+          </Link>
+          <button
+            type="button"
+            onClick={placeOrder}
+            disabled={loading || !cart.length}
+            className="px-6 py-2 rounded-full bg-slate-900 text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
+          >
+            {loading ? "Placing..." : "Place Order"}
+          </button>
         </div>
-      </div>
-
-      <div className="mt-3">
-        <label className="block text-sm opacity-80 mb-1">Notes</label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          className="w-full bg-transparent border rounded px-3 py-2"
-          rows={3}
-          placeholder="no spicy, extra sauce, etc."
-        />
-      </div>
-
-      <div className="mt-6 flex gap-3">
-        <Link
-          to={`/menu?table=${tableId}`}
-          className="px-4 py-2 border rounded hover:bg-white/10"
-        >
-          Back to Menu
-        </Link>
-        <button
-          type="button"
-          onClick={placeOrder}
-          disabled={loading || !cart.length}
-          className="px-4 py-2 bg-white text-black rounded disabled:opacity-60"
-        >
-          {loading ? "Placing..." : "Place Order"}
-        </button>
       </div>
     </div>
   );
