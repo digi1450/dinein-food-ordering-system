@@ -17,6 +17,7 @@ export default function CartPage() {
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // load cart for this table
   useEffect(() => {
@@ -216,7 +217,7 @@ export default function CartPage() {
           </Link>
           <button
             type="button"
-            onClick={placeOrder}
+            onClick={() => setConfirmOpen(true)}
             disabled={loading || !cart.length}
             className="px-6 py-2 rounded-full bg-slate-900 text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
           >
@@ -224,6 +225,41 @@ export default function CartPage() {
           </button>
         </div>
       </div>
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setConfirmOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="text-lg font-semibold text-slate-900">Place this order?</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              We'll send it to the kitchen for Table {tableId || "?"}.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="px-4 py-2 rounded-full border border-slate-300 bg-white hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConfirmOpen(false); placeOrder(); }}
+                className="px-4 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

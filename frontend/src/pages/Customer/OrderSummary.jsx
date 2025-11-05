@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 
 const cleanId = (v) => {
@@ -12,6 +12,14 @@ const cleanId = (v) => {
 const num = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
+};
+
+const firstId = (obj, keys = ["order_item_id","item_id","id"]) => {
+  for (const k of keys) {
+    const v = obj && obj[k];
+    if (v != null && String(v).trim() !== "") return v;
+  }
+  return null;
 };
 
 // pick the first non-empty trimmed string from a set of keys on an object
@@ -46,6 +54,11 @@ const statusStyle = (s = "") => {
   return "bg-gray-200 text-slate-800 ring-1 ring-gray-300/60";
 };
 
+const isActiveStatus = (s = "") => {
+  const k = String(s).toLowerCase();
+  return !["completed", "cancelled", "canceled"].includes(k);
+};
+
 export default function OrderSummary() {
   const esRef = useRef(null);                    // เก็บ EventSource ไว้ปิดตอน unmount
   const { orderId } = useParams();
@@ -57,6 +70,93 @@ export default function OrderSummary() {
   const [recent, setRecent] = useState([]);     // ประวัติออเดอร์โต๊ะนี้ (ล่าสุด→เก่า)
   const [loadingPast, setLoadingPast] = useState(false);
   const [error, setError] = useState("");
+  const [cancelingId, setCancelingId] = useState(null);
+  const [cancelErr, setCancelErr] = useState("");
+  const navigate = useNavigate();
+  const handleCancelItem = async (item) => {
+    // Show confirmation dialog before proceeding
+    const confirmed = window.confirm("Are you sure you want to cancel this item?");
+    if (!confirmed) {
+      return;
+    }
+    setCancelErr("");
+    const itemId = firstId(item);
+    if (!itemId) {
+      setCancelErr("Cannot cancel: missing item id.");
+      return;
+    }
+    try {
+      setCancelingId(itemId);
+      const res = await fetch(`${API_BASE}/orders/order-items/${itemId}/cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Cancel failed (${res.status}): ${t || res.statusText}`);
+      }
+      // Optimistic update: remove the item locally and recompute total, while SSE will also sync
+      setData((prev) => {
+        if (!prev) return prev;
+        const nextItems = Array.isArray(prev.items) ? prev.items.filter((it) => firstId(it) !== itemId) : [];
+        // recompute total from remaining items
+        const nextTotal = nextItems.reduce((sum, it) => {
+          const qty = num(it?.quantity, 0);
+          const preferred = it?.subtotal != null ? num(it.subtotal, NaN) : NaN;
+          const unit = num(it?.unit_price, NaN);
+          const price = num(it?.price, NaN);
+          const line = Number.isFinite(preferred)
+            ? preferred
+            : Number.isFinite(unit)
+            ? unit * qty
+            : Number.isFinite(price)
+            ? price * qty
+            : 0;
+          return sum + line;
+        }, 0);
+        return { ...prev, items: nextItems, total_amount: nextTotal };
+      });
+      // If this cancellation emptied the current order, promote to newest active order
+      try {
+        const t = cleanId(tableIdResolved);
+        if (Array.isArray(data?.items)) {
+          // Use a microtask to read the updated state (post-optimistic update)
+          Promise.resolve().then(promoteToNewestActive);
+        } else if (t) {
+          Promise.resolve().then(promoteToNewestActive);
+        }
+      } catch {}
+    } catch (e) {
+      console.error("[OrderSummary] cancel item error:", e);
+      setCancelErr(e.message || "Cancel failed");
+    } finally {
+      setCancelingId(null);
+    }
+  };
+
+  const promoteToNewestActive = async () => {
+    const t = cleanId(tableIdResolved);
+    if (!t) return;
+    try {
+      const r = await fetch(`${API_BASE}/orders?table_id=${t}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const list = (await r.json()) || [];
+      const newestActive = list.find(o => isActiveStatus(o.status));
+      if (newestActive?.order_id) {
+        const nextId = cleanId(newestActive.order_id);
+        setCurrentId(nextId);
+        // Make URL reflect the promoted order so user stays "pinned" to the new latest
+        try {
+          navigate(`/summary/${nextId}?table=${t}`, { replace: true });
+        } catch {}
+      } else {
+        // No active orders; clear the current card
+        setData(null);
+      }
+    } catch {
+      // silent
+    }
+  };
 
   const savedOrderId = useMemo(() => {
     // Prefer per-table remembered order id if a table id is resolvable; otherwise fall back to legacy keys
@@ -86,6 +186,13 @@ export default function OrderSummary() {
 
   const tableIdParam = params.get("table");
   const orderIdParam = params.get("order"); // optional ?order=17
+
+  // Memoized flag: did user explicitly request a specific order via URL param or query
+  const isUserPinned = useMemo(() => {
+    const routePinned = cleanId(orderId);
+    const queryPinned = cleanId(orderIdParam);
+    return !!(routePinned || queryPinned);
+  }, [orderId, orderIdParam]);
 
   // optional: table id saved locally if URL has none
   const savedTableId = useMemo(() => {
@@ -241,8 +348,15 @@ export default function OrderSummary() {
         const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const list = (await r.json()) || [];
-        const filtered = list
-          .filter(o => Number(o.order_id) !== Number(currentId));
+        // Prefer the newest active order for this table as the current card.
+        // API is expected to return newest first; find the first active order.
+        const newestActive = list.find(o => isActiveStatus(o.status));
+        if (!isUserPinned && newestActive && Number(newestActive.order_id) !== Number(currentId)) {
+          // Only auto-promote when the user did not explicitly open a specific order.
+          if (!cancelled) setCurrentId(cleanId(newestActive.order_id));
+          return;
+        }
+        const filtered = list.filter(o => Number(o.order_id) !== Number(currentId));
         if (!cancelled) setRecent(filtered);
       } catch (e) {
         if (!cancelled) setRecent([]);
@@ -252,7 +366,7 @@ export default function OrderSummary() {
     })();
 
     return () => { cancelled = true; };
-  }, [tableIdResolved, currentId]);
+  }, [tableIdResolved, currentId, isUserPinned]);
 
   // Realtime via SSE (follow currentId)
   useEffect(() => {
@@ -291,6 +405,33 @@ export default function OrderSummary() {
       }
     };
   }, [currentId]);
+
+  // Auto-promote the next active order for this table when current order becomes inactive or empty
+  useEffect(() => {
+    const inactive = !data || !isActiveStatus(data.status) || (Array.isArray(data.items) && data.items.length === 0);
+    if (!inactive) return;
+    if (isUserPinned) return; // Respect manual selection; do not auto-switch
+
+    const t = cleanId(tableIdResolved);
+    if (!t) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/orders?table_id=${t}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const list = (await r.json()) || [];
+        const next = list.find(o => isActiveStatus(o.status) && Number(o.order_id) !== Number(currentId));
+        if (!cancelled && next && next.order_id) {
+          setCurrentId(cleanId(next.order_id));
+        }
+      } catch (_) {
+        // ignore
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [data?.status, data?.items?.length, tableIdResolved, currentId, isUserPinned]);
 
 
   const items = data?.items || [];
@@ -350,6 +491,11 @@ export default function OrderSummary() {
         {error && (
           <div className="mt-4 rounded-xl bg-red-50 text-red-700 ring-1 ring-red-200 px-4 py-3 text-sm">
             {error}
+          </div>
+        )}
+        {cancelErr && (
+          <div className="mt-4 rounded-xl bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-4 py-3 text-sm">
+            {cancelErr}
           </div>
         )}
 
@@ -431,14 +577,28 @@ export default function OrderSummary() {
                         key={`${it.food_id}-${it.food_name}`}
                         className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5"
                       >
-                        <div>
-                          <div className="font-medium text-slate-900">{it.food_name}</div>
-                          <div className="text-xs text-slate-500">×{qty}</div>
-                          {itemNote && (
-                            <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">{itemNote}</div>
-                          )}
+                        <div className="flex items-center justify-between gap-3 w-full">
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-900">{it.food_name}</div>
+                            <div className="text-xs text-slate-500">×{qty}</div>
+                            {itemNote && (
+                              <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">{itemNote}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
+                            {String(it?.status || "").toLowerCase() === "pending" && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelItem(it)}
+                                disabled={cancelingId === firstId(it)}
+                                className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-white text-red-600 ring-1 ring-red-200 shadow-sm hover:bg-red-50 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                              >
+                                {cancelingId === firstId(it) ? "Cancelling…" : "Cancel"}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
                       </div>
                     );
                   })}

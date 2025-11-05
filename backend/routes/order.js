@@ -30,14 +30,17 @@ async function getOrderFlat(orderId) {
   // รายการอาหารในออเดอร์
   const [itemRows] = await db.execute(
     `SELECT 
+       oi.order_item_id,
        oi.food_id,
        f.food_name,
        oi.quantity,
        oi.unit_price,
-       oi.subtotal
+       oi.subtotal,
+       oi.status
      FROM order_item oi
      JOIN food f ON f.food_id = oi.food_id
-     WHERE oi.order_id = ?`,
+     WHERE oi.order_id = ?
+       AND (oi.status IS NULL OR oi.status <> 'cancelled')`,
     [orderId]
   );
 
@@ -158,7 +161,10 @@ router.get("/:id/stream", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
+  const origin = req.headers.origin;
+  if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -231,11 +237,14 @@ router.get("/", async (req, res) => {
 /* ---------------------------------------------
    GET /api/orders/stream-all  → SSE for admin feed
 ---------------------------------------------- */
-router.get("/stream-all", async (_req, res) => {
+router.get("/stream-all", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:5173");
+  const origin = req.headers.origin;
+  if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -341,10 +350,11 @@ router.post("/", async (req, res) => {
         it.quantity,
         it.unit_price,
         it.subtotal,
+        "pending",
       ]);
-      const placeholdersRow = orderItems.map(() => "(?,?,?,?,?)").join(",");
+      const placeholdersRow = orderItems.map(() => "(?,?,?,?,?,?)").join(",");
       await conn.execute(
-        `INSERT INTO order_item (order_id, food_id, quantity, unit_price, subtotal)
+        `INSERT INTO order_item (order_id, food_id, quantity, unit_price, subtotal, status)
          VALUES ${placeholdersRow}`,
         values
       );
@@ -430,5 +440,88 @@ router.patch("/:id/status", async (req, res) => {
   }
 });
 
+
+
+/* ---------------------------------------------
+   PATCH /api/order-items/:itemId/cancel
+   ยกเลิกรายการอาหารเฉพาะรายการ (ได้เฉพาะสถานะ pending)
+---------------------------------------------- */
+router.patch("/order-items/:itemId/cancel", async (req, res) => {
+  try {
+    const itemId = Number(req.params.itemId);
+    if (!Number.isFinite(itemId) || itemId <= 0) {
+      return res.status(400).json({ message: "invalid itemId" });
+    }
+
+    // 1) ดึงข้อมูลรายการ
+    const [[row]] = await db.execute(
+      `SELECT order_item_id, order_id, status
+       FROM order_item
+       WHERE order_item_id = ?`,
+      [itemId]
+    );
+    if (!row) return res.status(404).json({ message: "item not found" });
+
+    // อนุญาตให้ยกเลิกเฉพาะสถานะ pending เท่านั้น
+    if (String(row.status || '').toLowerCase() !== 'pending') {
+      return res.status(400).json({ message: "item cannot be cancelled now" });
+    }
+
+    // 2) ยกเลิกรายการ
+    await db.execute(
+      `UPDATE order_item
+       SET status='cancelled'
+       WHERE order_item_id = ?`,
+      [itemId]
+    );
+
+    // 3) คำนวณยอดคงเหลือของออเดอร์ และอัปเดตหัวออเดอร์
+    const [[sumRow]] = await db.execute(
+      `SELECT COALESCE(SUM(
+         CASE
+           WHEN subtotal IS NOT NULL THEN subtotal
+           ELSE COALESCE(unit_price, 0) * COALESCE(quantity, 0)
+         END
+       ),0) AS total
+       FROM order_item
+       WHERE order_id=? AND (status IS NULL OR status <> 'cancelled')`,
+      [row.order_id]
+    );
+
+    const remainingTotal = Number(sumRow.total || 0);
+
+    // มีรายการที่ยังไม่ถูกยกเลิกเหลืออยู่ไหม
+    const [[left]] = await db.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM order_item
+       WHERE order_id=? AND (status IS NULL OR status <> 'cancelled')`,
+      [row.order_id]
+    );
+
+    if (Number(left.cnt) === 0) {
+      // ไม่มีรายการเหลือ → ปิดออเดอร์นี้เป็น cancelled และตั้งยอดเป็น 0
+      await db.execute(
+        `UPDATE orders
+         SET status='cancelled', total_amount=0, updated_at=NOW()
+         WHERE order_id=?`,
+        [row.order_id]
+      );
+    } else {
+      // ยังมีรายการเหลือ → อัปเดตยอดรวมใหม่
+      await db.execute(
+        `UPDATE orders SET total_amount=?, updated_at=NOW() WHERE order_id=?`,
+        [remainingTotal, row.order_id]
+      );
+    }
+
+    // แจ้งผู้ติดตาม SSE ของออเดอร์นี้
+    publish(row.order_id).catch(() => {});
+
+    return res.json({ ok: true, order_item_id: itemId, order_id: row.order_id, remaining_total: remainingTotal });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ message: "cancel item error" });
+  }
+});
 
 export default router;
