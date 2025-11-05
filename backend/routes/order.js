@@ -200,7 +200,12 @@ router.get("/", async (req, res) => {
       where.push("o.table_id = ?");
       args.push(Number(table_id));
     }
+    // แสดงเฉพาะออเดอร์ที่ยังดำเนินอยู่เท่านั้น
+    where.push("o.status NOT IN ('completed', 'cancelled')");
 
+
+    // กรองออเดอร์ที่มียอด (total_amount) เท่านั้น
+    where.push("o.total_amount IS NOT NULL");
     const sql = `
       SELECT 
         o.order_id,

@@ -17,6 +17,7 @@ export default function App() {
         <Route path="/home" element={<HomePage />} />      {/* ✅ หน้าเลือกหมวด */}
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/cart" element={<CartPage />} />
+        <Route path="/summary" element={<OrderSummary />} />
         <Route path="/summary/:orderId" element={<OrderSummary />} />
         <Route path="/checkout" element={<CheckoutSummary />} />
         <Route path="/checkout/success" element={<CheckoutSuccess />} />

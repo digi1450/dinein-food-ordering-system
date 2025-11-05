@@ -144,20 +144,18 @@ export default function MenuPage() {
             >
               Categories
             </Link>
-            {tableId && (
-              <Link
-                aria-label="View current order"
-                to={lastOrderId ? `/summary/${lastOrderId}?table=${tableId}` : `/summary?table=${tableId}`}
-                className="inline-flex items-center gap-2 rounded-full bg-white/90 text-slate-900 px-3 py-1.5 text-sm font-medium ring-1 ring-black/10 hover:bg-white"
-              >
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${
-                    hasActiveOrders ? "bg-yellow-400" : "bg-green-400"
-                  }`}
-                />
-                <span>Order</span>
-              </Link>
-            )}
+            <Link
+              aria-label="View current order"
+              to={`/summary?table=${tableId}`}
+              className="inline-flex items-center gap-2 rounded-full bg-white/90 text-slate-900 px-3 py-1.5 text-sm font-medium ring-1 ring-black/10 hover:bg-white"
+            >
+              <span
+                className={`inline-block h-2.5 w-2.5 rounded-full ${
+                  hasActiveOrders ? "bg-yellow-400" : "bg-green-400"
+                }`}
+              />
+              <span>Order</span>
+            </Link>
           </div>
         </header>
 
