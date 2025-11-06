@@ -95,12 +95,18 @@ export default function OrderSummary() {
         const t = await res.text().catch(() => "");
         throw new Error(`Cancel failed (${res.status}): ${t || res.statusText}`);
       }
-      // Optimistic update: remove the item locally and recompute total, while SSE will also sync
+      // Optimistic update: keep the item but mark it as cancelled; recompute total excluding cancelled items.
       setData((prev) => {
         if (!prev) return prev;
-        const nextItems = Array.isArray(prev.items) ? prev.items.filter((it) => firstId(it) !== itemId) : [];
-        // recompute total from remaining items
+        const nextItems = Array.isArray(prev.items)
+          ? prev.items.map((it) =>
+              firstId(it) === itemId ? { ...it, status: "cancelled" } : it
+            )
+          : [];
+
+        // Recompute total from non-cancelled items only
         const nextTotal = nextItems.reduce((sum, it) => {
+          if (String(it?.status || "").toLowerCase() === "cancelled") return sum;
           const qty = num(it?.quantity, 0);
           const preferred = it?.subtotal != null ? num(it.subtotal, NaN) : NaN;
           const unit = num(it?.unit_price, NaN);
@@ -114,18 +120,10 @@ export default function OrderSummary() {
             : 0;
           return sum + line;
         }, 0);
+
         return { ...prev, items: nextItems, total_amount: nextTotal };
       });
-      // If this cancellation emptied the current order, promote to newest active order
-      try {
-        const t = cleanId(tableIdResolved);
-        if (Array.isArray(data?.items)) {
-          // Use a microtask to read the updated state (post-optimistic update)
-          Promise.resolve().then(promoteToNewestActive);
-        } else if (t) {
-          Promise.resolve().then(promoteToNewestActive);
-        }
-      } catch {}
+      // Note: Do not auto-promote here; let SSE or explicit refresh manage order switching.
     } catch (e) {
       console.error("[OrderSummary] cancel item error:", e);
       setCancelErr(e.message || "Cancel failed");
@@ -337,6 +335,48 @@ export default function OrderSummary() {
     })();
   }, [currentId]);
 
+  // Helper to compute past orders for the current sitting (session-bounded, robust to timestamps)
+  const computePastOrders = (list, currentId) => {
+    const curStatus = String(data?.status || "").toLowerCase();
+    if (curStatus === "completed" || curStatus === "paid") return [];
+    const arr = Array.isArray(list) ? list.slice() : [];
+    // Identify the most recent completed order as the session boundary
+    const lastCompleted = arr.find(
+      (o) => String(o?.status || "").toLowerCase() === "completed"
+    );
+
+    // Helper to parse created_at safely
+    const toTime = (o) => {
+      const t = Date.parse(o?.created_at);
+      return Number.isFinite(t) ? t : null;
+    };
+
+    // Boundary timestamp / id (prefer timestamp; fallback to order_id)
+    const boundaryTs = lastCompleted ? toTime(lastCompleted) : null;
+    const boundaryId = lastCompleted ? Number(lastCompleted.order_id) : null;
+
+    const keep = [];
+    for (const o of arr) {
+      if (Number(o.order_id) === Number(currentId)) continue; // never include the current one
+      const st = String(o.status || "").toLowerCase();
+      if (st === "completed") continue; // never show completed inside Past orders list
+
+      // If we have a boundary completed, only include orders STRICTLY NEWER than that boundary
+      if (lastCompleted) {
+        const ot = toTime(o);
+        if (boundaryTs != null && ot != null) {
+          if (ot <= boundaryTs) continue; // older or same as last completed -> previous sittings, drop
+        } else if (boundaryId != null) {
+          if (Number(o.order_id) <= boundaryId) continue; // fallback by id
+        }
+      }
+
+      // At this point, o belongs to the current sitting (newer than boundary), so keep it
+      keep.push(o);
+    }
+    return keep;
+  };
+
   // 2.5) Load recent orders by table (exclude current)
   useEffect(() => {
     const tableId = Number(tableIdResolved);
@@ -349,9 +389,14 @@ export default function OrderSummary() {
     (async () => {
       try {
         setLoadingPast(true);
-        const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
+        const r = await fetch(`${API_BASE}/orders?table_id=${tableId}&include_closed=1`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const list = (await r.json()) || [];
+        const curStatus = String(data?.status || "").toLowerCase();
+        if (curStatus === "completed" || curStatus === "paid") {
+          if (!cancelled) setRecent([]);
+          return;
+        }
         // Prefer the newest active order for this table as the current card.
         // API is expected to return newest first; find the first active order.
         const newestActive = list.find(o => isActiveStatus(o.status));
@@ -360,7 +405,7 @@ export default function OrderSummary() {
           if (!cancelled) setCurrentId(cleanId(newestActive.order_id));
           return;
         }
-        const filtered = list.filter(o => Number(o.order_id) !== Number(currentId));
+        const filtered = computePastOrders(list, currentId);
         if (!cancelled) setRecent(filtered);
       } catch (e) {
         if (!cancelled) setRecent([]);
@@ -370,7 +415,7 @@ export default function OrderSummary() {
     })();
 
     return () => { cancelled = true; };
-  }, [tableIdResolved, currentId, isUserPinned]);
+  }, [tableIdResolved, currentId, isUserPinned, data?.status]);
 
   // Realtime via SSE (follow currentId)
   useEffect(() => {
@@ -410,6 +455,12 @@ export default function OrderSummary() {
     };
   }, [currentId]);
 
+  useEffect(() => {
+  const s = String(data?.status || "").toLowerCase();
+  if (s === "completed" || s === "paid") {
+    setRecent([]);
+  }
+}, [data?.status]);
   // Auto-promote the next active order for this table when current order becomes inactive or empty
   useEffect(() => {
     const inactive = !data || !isActiveStatus(data.status) || (Array.isArray(data.items) && data.items.length === 0);
@@ -439,11 +490,15 @@ export default function OrderSummary() {
 
 
   const items = data?.items || [];
+  const isClosed = ["completed", "paid"].includes(String(data?.status || "").toLowerCase());
   const derivedTotal = useMemo(() => {
-    if (data?.total_amount != null && Number.isFinite(Number(data.total_amount))) {
+    const isCancelledOrder = String(data?.status || "").toLowerCase() === "cancelled";
+    if (!isCancelledOrder && data?.total_amount != null && Number.isFinite(Number(data.total_amount))) {
       return Number(data.total_amount);
     }
     return items.reduce((sum, it) => {
+      // skip cancelled items when computing from lines
+      if (String(it?.status || "").toLowerCase() === "cancelled") return sum;
       const qty = num(it?.quantity, 0);
       const preferred = it?.subtotal != null ? num(it.subtotal, NaN) : NaN;
       const unit = num(it?.unit_price, NaN);
@@ -457,7 +512,7 @@ export default function OrderSummary() {
         : 0;
       return sum + line;
     }, 0);
-  }, [data?.total_amount, items]);
+  }, [data?.status, data?.total_amount, items]);
 
   // --- safe mappings based on current response shape ---
   const orderNo  = data?.order_id ?? currentId ?? "—";
@@ -511,11 +566,11 @@ export default function OrderSummary() {
           </div>
         ) : (
           <>
-            {/* Hide order card if status is completed or cancelled */}
-            {["completed", "cancelled"].includes(String(data.status).toLowerCase()) ? (
+            {/* Show completed as a closed card; for cancelled, still show the order with a clear banner */}
+            {String(data.status).toLowerCase() === "completed" ? (
               <div className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto text-center">
-                <h2 className="text-xl font-semibold text-slate-900">No active orders for this table.</h2>
-                <p className="text-slate-500 mt-2">You have no current orders in progress. Please create a new order from the menu.</p>
+                <h2 className="text-xl font-semibold text-slate-900">Order Completed</h2>
+                <p className="text-slate-500 mt-2">This table has already checked out. Please start a new order from the menu.</p>
                 <div className="mt-7 flex justify-center">
                   <Link
                     to={`/home?table=${tableIdResolved ?? ""}`}
@@ -529,10 +584,14 @@ export default function OrderSummary() {
               <div
                 className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto"
               >
+                {String(data.status).toLowerCase() === "cancelled" && (
+                  <div className="mb-4 text-center text-red-500 font-semibold text-lg">Order Cancelled</div>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-500">Current status</p>
                   <span
-                    className={`inline-flex items-center justify-center rounded-full px-5 py-2 min-h-[40px] min-w-[96px] leading-none text-sm font-semibold uppercase ${statusStyle(statusRaw)}`}>
+                    className={`inline-flex items-center justify-center rounded-full px-5 py-2 min-h-[40px] min-w-[96px] leading-none text-sm font-semibold uppercase ${statusStyle(statusRaw)}`}
+                  >
                     {statusText}
                   </span>
                 </div>
@@ -562,7 +621,6 @@ export default function OrderSummary() {
                     const itemNote = pickText(it, [
                       "note", "notes", "comment", "comments", "special_request", "description", "options_note"
                     ]);
-                    // Prefer explicit subtotal; otherwise try unit_price*qty then price*qty
                     const lineSubtotal =
                       (it?.subtotal != null ? num(it.subtotal, NaN) : NaN) ??
                       NaN;
@@ -575,15 +633,23 @@ export default function OrderSummary() {
                       : Number.isFinite(fallbackPrice)
                       ? fallbackPrice * qty
                       : 0;
-
+                    const isCancelled = String(it?.status || "").toLowerCase() === "cancelled";
+                    const itemClassName = isCancelled
+                      ? "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5 opacity-50 line-through text-red-400"
+                      : "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5";
                     return (
                       <div
                         key={`${it.food_id}-${it.food_name}`}
-                        className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5"
+                        className={itemClassName}
                       >
                         <div className="flex items-center justify-between gap-3 w-full">
                           <div className="min-w-0">
-                            <div className="font-medium text-slate-900">{it.food_name}</div>
+                            <div className="font-medium text-slate-900">
+                              {it.food_name}{" "}
+                              {isCancelled && (
+                                <span className="ml-1 text-xs text-red-400 font-normal">(Cancelled)</span>
+                              )}
+                            </div>
                             <div className="text-xs text-slate-500">×{qty}</div>
                             {itemNote && (
                               <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">{itemNote}</div>
@@ -624,20 +690,21 @@ export default function OrderSummary() {
               </div>
             )}
 
-            {/* Past orders */}
+          {/* Past orders */}
+          {!isClosed && (
             <div className="mt-10">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-lg font-semibold text-slate-800">Past orders for this table</h2>
                 <button
                   onClick={async () => {
+                    if (isClosed) { setRecent([]); return; }
                     const tableId = Number(tableIdResolved);
                     if (!Number.isFinite(tableId) || tableId <= 0) return;
                     try {
                       setLoadingPast(true);
-                      const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
+                      const r = await fetch(`${API_BASE}/orders?table_id=${tableId}&include_closed=1`);
                       const list = (await r.json()) || [];
-                      const filtered = list
-                        .filter(o => Number(o.order_id) !== Number(currentId));
+                      const filtered = computePastOrders(list, currentId);
                       setRecent(filtered);
                     } catch (err) {
                       console.error("[OrderSummary] Manual past orders refresh failed", err);
@@ -683,7 +750,7 @@ export default function OrderSummary() {
                 </>
               )}
               {/* Checkout button stays at the bottom even if no past orders */}
-              {data && items.length > 0 && (
+              {data && items.length > 0 && isActiveStatus(data.status) && (
                 <div className="mt-8 flex justify-end">
                   <Link
                     to={`/checkout?table=${tableIdResolved ?? ""}`}
@@ -694,6 +761,7 @@ export default function OrderSummary() {
                 </div>
               )}
             </div>
+             )}
           </>
         )}
       </div>

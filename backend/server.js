@@ -11,6 +11,7 @@ import tableRoutes from "./routes/table.js";
 import paymentRoutes from "./routes/payment.js";
 import authRoutes from "./routes/auth.js";
 import adminMenuRoutes from "./routes/admin.menu.js";
+import adminOrdersRoutes from "./routes/admin.orders.js";
 
 const app = express();
 app.use(cors({
@@ -20,6 +21,7 @@ app.use(express.json());
 
 app.use("/api/admin", authRoutes);
 app.use("/api/admin/menu", adminMenuRoutes);
+app.use("/api/admin/orders", adminOrdersRoutes);
 app.use("/api/admin", adminRoutes);
 
 app.use("/api/menu", menuRoutes);

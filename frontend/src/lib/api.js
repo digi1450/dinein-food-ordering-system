@@ -146,4 +146,28 @@ export const api = {
     put: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PUT", body, auth: true }),
     del: (p, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "DELETE", auth: true }),
   },
+
+  adminOrders: {
+    /**
+     * Fetch admin orders with optional filters:
+     * params: { status?, item_status?, table_id?, q? }
+     */
+    getOrders: (params) => api.admin.get(`/orders${buildQuery(params)}`),
+
+    /**
+     * Update status of an entire order (order-level control).
+     * status: 'pending' | 'preparing' | 'served' | 'completed' | 'cancelled'
+     * note?: string
+     */
+    updateOrderStatus: (orderId, status, note) =>
+      api.admin.patch(`/orders/${orderId}/status`, { status, note }),
+
+    /**
+     * Update status of a specific order item.
+     * status: 'pending' | 'preparing' | 'served' | 'completed' | 'cancelled'
+     * note?: string
+     */
+    updateOrderItemStatus: (orderItemId, status, note) =>
+      api.admin.patch(`/orders/items/${orderItemId}`, { status, note }),
+  },
 };

@@ -29,6 +29,42 @@ export default function AdminDashboard() {
     is_active: 1,
   });
 
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  const loadOrders = async () => {
+    setLoadingOrders(true);
+    try {
+      const res = await api.adminOrders.getOrders();
+      setOrders(res.list || []);
+    } catch (err) {
+      console.error("loadOrders error:", err);
+      alert("Failed to load orders");
+      setOrders([]);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  // ---- Order status transitions ----
+  const nextStatuses = {
+    pending: ["preparing", "cancelled"],
+    preparing: ["served", "cancelled"],
+    served: ["completed"],
+    completed: [],
+    cancelled: []
+  };
+
+  const onUpdateOrderStatus = async (order, newStatus) => {
+    if (!confirm(`Change order status to "${newStatus}" for ${order.order_code || `Order #${order.order_id}` }?`)) return;
+    try {
+      await api.adminOrders.updateOrderStatus(order.order_id, newStatus);
+      await loadOrders();
+    } catch (err) {
+      console.error("updateOrderStatus error:", err);
+      alert("Failed to update order status");
+    }
+  };
+
   // ---- Guard: ไม่มี token ให้เด้งไป login ----
   useEffect(() => {
     const t = localStorage.getItem("token");
@@ -76,6 +112,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (tab === "menu") loadMenu();
     if (tab === "activity") loadActivity();
+    if (tab === "orders") loadOrders();
   }, [tab]);
 
   // ---- helpers ----
@@ -204,23 +241,66 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Tab: Orders (Realtime) */}
+      {/* Tab: Orders (Admin Management) */}
       {tab === "orders" && (
-        <div className="grid md:grid-cols-2 gap-4">
-          {orders.map((o) => (
-            <div key={o.order_id} className="border border-white/10 rounded p-4">
-              <div className="flex justify-between">
-                <span className="font-semibold">Order #{o.order_id}</span>
-                <span className="opacity-70">{o.status}</span>
-              </div>
-              <div className="mt-2 opacity-80">
-                Table {o.table_label || o.table_id} — ฿{Number(o.total_amount || 0).toFixed(2)}
-              </div>
-            </div>
-          ))}
-          {!orders.length && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-bold">Orders Management</h2>
+            <button
+              className="px-3 py-1 border rounded hover:bg-white/10"
+              onClick={loadOrders}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loadingOrders && <div className="opacity-70">Loading orders...</div>}
+
+          {!loadingOrders && orders.length === 0 && (
             <div className="opacity-70">No orders yet.</div>
           )}
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {orders.map((o) => (
+              <div key={o.order_id} className="border border-white/10 rounded p-4">
+                <div className="flex justify-between mb-1">
+                  <span className="font-semibold">
+                    {o.order_code || `Order #${o.order_id}`}
+                  </span>
+                  <span className="opacity-70">{o.status}</span>
+                </div>
+                {/* Order status controls */}
+                <div className="flex gap-1 mb-2">
+                  {nextStatuses[o.status]?.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => onUpdateOrderStatus(o, s)}
+                      className="text-xs px-2 py-1 border rounded hover:bg-white/10"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="opacity-80 text-sm mb-2">
+                  Table {o.table_label || o.table_id} — ฿
+                  {Number(o.total_amount || 0).toFixed(2)}
+                </div>
+                <div className="space-y-1">
+                  {o.items?.map((it) => (
+                    <div
+                      key={it.order_item_id}
+                      className="flex items-center justify-between text-sm border-b border-white/10 py-1"
+                    >
+                      <div>
+                        {it.food_name} × {it.quantity}
+                        <span className="ml-2 opacity-70">({it.status})</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

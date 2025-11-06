@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 dotenv.config();
 
-export const db = await mysql.createPool({
+const pool = await mysql.createPool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT, 
   user: process.env.DB_USER,
@@ -11,3 +11,7 @@ export const db = await mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
 });
+
+export default pool;
+export { pool };
+export { pool as db }; 

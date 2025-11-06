@@ -39,8 +39,7 @@ async function getOrderFlat(orderId) {
        oi.status
      FROM order_item oi
      JOIN food f ON f.food_id = oi.food_id
-     WHERE oi.order_id = ?
-       AND (oi.status IS NULL OR oi.status <> 'cancelled')`,
+     WHERE oi.order_id = ?`,
     [orderId]
   );
 
@@ -198,6 +197,10 @@ router.get("/", async (req, res) => {
     const where = [];
     const args = [];
 
+    // Read include_closed param
+    const include_closed = String(req.query?.include_closed || "").toLowerCase();
+    const wantClosed = include_closed === "1" || include_closed === "true";
+
     if (status) {
       where.push("o.status = ?");
       args.push(status);
@@ -206,9 +209,19 @@ router.get("/", async (req, res) => {
       where.push("o.table_id = ?");
       args.push(Number(table_id));
     }
-    // แสดงเฉพาะออเดอร์ที่ยังดำเนินอยู่เท่านั้น
-    where.push("o.status NOT IN ('completed', 'cancelled')");
 
+    if (!wantClosed) {
+      // ค่าเริ่มต้น: แสดงเฉพาะออเดอร์ที่ยังดำเนินอยู่ + ออเดอร์ล่าสุดของโต๊ะ (แม้จะปิดแล้ว)
+      where.push(`(
+        o.status NOT IN ('completed','cancelled')
+        OR o.order_id = (
+          SELECT MAX(o2.order_id)
+          FROM orders o2
+          WHERE o2.table_id = o.table_id
+        )
+      )`);
+    }
+    // ถ้า wantClosed === true จะไม่ใส่เงื่อนไขตัด completed/cancelled ออก → ดึงทุกสถานะสำหรับโต๊ะนั้น
 
     // กรองออเดอร์ที่มียอด (total_amount) เท่านั้น
     where.push("o.total_amount IS NOT NULL");
