@@ -9,7 +9,7 @@ router.get("/", async (req, res) => {
     const { cat } = req.query;
     if (cat) {
       const [rows] = await db.execute(
-        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name
+        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name, f.description
          FROM food f
          LEFT JOIN category c ON c.category_id = f.category_id
          WHERE f.is_active = 1 AND f.category_id = ? 
@@ -19,7 +19,7 @@ router.get("/", async (req, res) => {
       return res.json(rows);
     } else {
       const [rows] = await db.execute(
-        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name
+        `SELECT f.food_id, f.food_name, f.price, f.category_id, c.category_name, f.description
          FROM food f
          LEFT JOIN category c ON c.category_id = f.category_id
          WHERE f.is_active = 1

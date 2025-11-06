@@ -151,7 +151,11 @@ export default function OrderSummary() {
         } catch {}
       } else {
         // No active orders; clear the current card
+        setCurrentId(null);
         setData(null);
+        try {
+          navigate(`/summary?table=${t}`, { replace: true });
+        } catch {}
       }
     } catch {
       // silent

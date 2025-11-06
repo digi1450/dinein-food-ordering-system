@@ -210,7 +210,12 @@ export default function MenuPage() {
               <div className="pr-3">
                 <div className="font-semibold text-slate-900">{it.food_name}</div>
                 <div className="text-xs md:text-sm text-slate-500">{it.category_name}</div>
-                <div className="text-xs md:text-sm text-slate-600">฿{formatPrice(it.price)}</div>
+                {it.description && (
+                  <div className="mt-1 text-xs md:text-sm text-slate-600 whitespace-pre-wrap break-words">
+                    {it.description}
+                  </div>
+                )}
+                <div className="mt-1 text-xs md:text-sm text-slate-700">฿{formatPrice(it.price)}</div>
               </div>
               <div className="relative flex items-center gap-3">
                 <button
