@@ -269,7 +269,7 @@ export default function AdminDashboard() {
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2"
                 value={form.price}
                 onChange={(e)=>setForm(f=>({...f, price: e.target.value}))}
-                placeholder="129"
+                placeholder="e.g. 99.00"
                 required
               />
             </div>
