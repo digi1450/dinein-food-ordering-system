@@ -16,12 +16,17 @@ export default function AdminDashboard() {
   const [menu, setMenu] = useState([]);
   const [activity, setActivity] = useState([]);
 
+  const [editingId, setEditingId] = useState(null);   // food_id that is being edited; null = create-new
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null); // to disable delete button while processing
+
   // create-menu form
   const [form, setForm] = useState({
     category_id: "2",
     food_name: "",
     price: "",
-    description: ""
+    description: "",
+    is_active: 1,
   });
 
   // ---- Guard: ไม่มี token ให้เด้งไป login ----
@@ -74,25 +79,69 @@ export default function AdminDashboard() {
   }, [tab]);
 
   // ---- helpers ----
-  const onCreateMenu = async (e) => {
+  const onSaveMenu = async (e) => {
     e.preventDefault();
-    const payload = {
-      category_id: Number(form.category_id),
-      food_name: form.food_name.trim(),
-      price: Number(form.price),
-      description: form.description.trim() || null
-    };
-    if (!payload.food_name || !Number.isFinite(payload.price)) {
-      alert("Please fill food name and valid price");
-      return;
-    }
+    setSaving(true);
     try {
-      await api.admin.post("/menu", payload); // แนบ token อัตโนมัติ
-      setForm({ category_id: "2", food_name: "", price: "", description: "" });
+      const payload = {
+        category_id: Number(form.category_id),
+        food_name: form.food_name.trim(),
+        price: Number(form.price),
+        description: form.description.trim() || null,
+        is_active: form.is_active ? 1 : 0,
+      };
+      if (!payload.food_name || !Number.isFinite(payload.price)) {
+        alert("Please fill food name and valid price");
+        return;
+      }
+
+      if (editingId) {
+        await api.admin.patch(`/menu/${editingId}`, payload);
+        alert("Menu updated ✅");
+      } else {
+        await api.admin.post("/menu", payload);
+        alert("Created menu item ✅");
+      }
+
+      setForm({ category_id: "2", food_name: "", price: "", description: "", is_active: 1 });
+      setEditingId(null);
       await loadMenu();
-      alert("Created menu item ✅");
     } catch (err) {
-      alert(err?.message || "Create failed");
+      alert(err?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onEditClick = (m) => {
+    setEditingId(m.food_id);
+    setForm({
+      category_id: String(m.category_id ?? "2"),
+      food_name: m.food_name ?? "",
+      price: String(m.price ?? ""),
+      description: m.description ?? "",
+      is_active: m.is_active ? 1 : 0,
+    });
+    setTab("menu");
+  };
+
+  const onCancelEdit = () => {
+    setEditingId(null);
+    setForm({ category_id: "2", food_name: "", price: "", description: "", is_active: 1 });
+  };
+
+  const onDeleteClick = async (food_id, food_name) => {
+    if (!confirm(`Delete "${food_name}"? This cannot be undone.`)) return;
+    setDeletingId(food_id);
+    try {
+      await adminDelete(`/admin/menu/${food_id}`);
+      await loadMenu();
+      alert("Deleted ✅");
+      if (editingId === food_id) onCancelEdit();
+    } catch (err) {
+      alert(err?.message || "Delete failed");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -101,6 +150,23 @@ export default function AdminDashboard() {
     localStorage.removeItem("isAdmin");
     nav("/admin/login", { replace: true });
   };
+
+  async function adminDelete(path) {
+    const token = localStorage.getItem("token");
+    // ensure /admin prefix for secured admin routes
+    const normalized = path.startsWith("/admin/") ? path : `/admin${path}`;
+    const r = await fetch(`${API_BASE}${normalized}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!r.ok) {
+      const msg = (await r.text().catch(() => "")) || r.statusText || "Delete failed";
+      throw new Error(msg);
+    }
+    return true;
+  }
 
   return (
     <div className="min-h-screen bg-black text-white p-6">
@@ -162,12 +228,12 @@ export default function AdminDashboard() {
       {tab === "menu" && (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-bold">Menu Items</h2>
+            <h2 className="text-xl font-bold">Menu Items {editingId ? <span className="text-sm font-normal opacity-70">(editing #{editingId})</span> : null}</h2>
             <button className="px-3 py-1 border rounded hover:bg-white/10" onClick={loadMenu}>Refresh</button>
           </div>
 
           {/* Create Menu Form */}
-          <form onSubmit={onCreateMenu} className="bg-white/5 border border-white/10 rounded p-4 mb-4 grid md:grid-cols-4 gap-3">
+          <form onSubmit={onSaveMenu} className="bg-white/5 border border-white/10 rounded p-4 mb-4 grid md:grid-cols-4 gap-3">
             <div>
               <label className="block text-sm mb-1 opacity-80">Category</label>
               <select
@@ -208,6 +274,18 @@ export default function AdminDashboard() {
               />
             </div>
 
+            <div className="flex items-end gap-2">
+              <label className="flex items-center gap-2 text-sm opacity-80">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 accent-green-500 border-gray-400 rounded cursor-pointer"
+                  checked={!!form.is_active}
+                  onChange={(e)=>setForm(f=>({...f, is_active: e.target.checked ? 1 : 0}))}
+                />
+                Active
+              </label>
+            </div>
+
             <div className="md:col-span-4">
               <label className="block text-sm mb-1 opacity-80">Description (optional)</label>
               <div className="flex gap-2">
@@ -219,10 +297,20 @@ export default function AdminDashboard() {
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-white text-black rounded font-semibold hover:bg-gray-200"
+                  disabled={saving}
+                  className="px-4 py-2 bg-white text-black rounded font-semibold hover:bg-gray-200 disabled:opacity-60"
                 >
-                  Add
+                  {editingId ? (saving ? "Saving..." : "Update") : (saving ? "Saving..." : "Add")}
                 </button>
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={onCancelEdit}
+                    className="px-3 py-2 border rounded hover:bg-white/10"
+                  >
+                    Cancel
+                  </button>
+                )}
               </div>
             </div>
           </form>
@@ -231,11 +319,34 @@ export default function AdminDashboard() {
           <div className="grid md:grid-cols-2 gap-3">
             {menu.map(m => (
               <div key={m.food_id} className="border border-white/10 rounded p-3">
-                <div className="font-semibold">{m.food_name}</div>
-                <div className="text-sm opacity-70">
-                  ฿{Number(m.price).toFixed(2)} • {m.category_name || `Category ${m.category_id}`}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">{m.food_name}</div>
+                    <div className="text-sm opacity-70">
+                      ฿{Number(m.price).toFixed(2)} • {m.category_name || `Category ${m.category_id}`} • Active: {m.is_active ? "Yes" : "No"}
+                    </div>
+                    {m.description && (
+                      <div className="text-xs opacity-70 mt-1">{m.description}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="px-2 py-1 text-sm border rounded hover:bg-white/10"
+                      onClick={()=>onEditClick(m)}
+                      title="Edit"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="px-2 py-1 text-sm border rounded hover:bg-red-500/10 disabled:opacity-60"
+                      onClick={()=>onDeleteClick(m.food_id, m.food_name)}
+                      disabled={deletingId === m.food_id}
+                      title="Delete"
+                    >
+                      {deletingId === m.food_id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
                 </div>
-                <div className="text-sm opacity-70">Active: {m.is_active ? "Yes" : "No"}</div>
               </div>
             ))}
             {!menu.length && (

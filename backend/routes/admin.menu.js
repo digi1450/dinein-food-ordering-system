@@ -140,48 +140,71 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
     const foodId = toNumber(req.params.food_id);
     if (!foodId) return res.status(400).json({ message: "Invalid food_id" });
 
-    // แยกค่าที่ส่งมา
+    // --- normalize incoming fields (allow clearing description/image by sending "" or null) ---
+    const normalizeNullable = (v) => (v === "" ? null : v);
     const payload = {
       category_id: req.body?.category_id !== undefined ? toNumber(req.body.category_id) : undefined,
       food_name: req.body?.food_name,
       price: req.body?.price !== undefined ? toNumber(req.body.price) : undefined,
-      description: req.body?.description,
-      image: req.body?.image,
+      description: req.body?.description !== undefined ? normalizeNullable(req.body.description) : undefined,
+      image: req.body?.image !== undefined ? normalizeNullable(req.body.image) : undefined,
       is_active: req.body?.is_active !== undefined ? (req.body.is_active ? 1 : 0) : undefined,
     };
 
+    // at least one field must be present (including null for clearing)
     if (!ensureAtLeastOneField(payload)) {
       return res.status(400).json({ message: "No fields to update" });
     }
 
-    // (optional) ถ้ามี category_id ใหม่ → ตรวจว่ามีจริง
+    // validate category_id only when provided (and not null)
     if (payload.category_id !== undefined && payload.category_id !== null) {
       const [cat] = await db.query(`SELECT 1 FROM category WHERE category_id=?`, [payload.category_id]);
       if (!cat.length) return res.status(400).json({ message: "category_id not found" });
     }
 
-    const [result] = await db.query(
-      `UPDATE food SET
-         category_id = COALESCE(?, category_id),
-         food_name   = COALESCE(?, food_name),
-         price       = COALESCE(?, price),
-         description = COALESCE(?, description),
-         image       = COALESCE(?, image),
-         is_active   = COALESCE(?, is_active),
-         updated_by  = ?
-       WHERE food_id = ?`,
-      [
-        payload.category_id ?? null,
-        payload.food_name ?? null,
-        payload.price ?? null,
-        payload.description ?? null,
-        payload.image ?? null,
-        payload.is_active ?? null,
-        req.user.user_id,
-        foodId,
-      ]
-    );
+    // build dynamic SET list; include a field only when it is provided (even if null)
+    const setClauses = [];
+    const params = [];
 
+    if (payload.category_id !== undefined) {
+      setClauses.push(`category_id = ?`);
+      params.push(payload.category_id);
+    }
+    if (payload.food_name !== undefined) {
+      setClauses.push(`food_name = ?`);
+      params.push(payload.food_name);
+    }
+    if (payload.price !== undefined) {
+      if (payload.price === null || !Number.isFinite(payload.price)) {
+        return res.status(400).json({ message: "Invalid price" });
+      }
+      setClauses.push(`price = ?`);
+      params.push(payload.price);
+    }
+    if (payload.description !== undefined) {
+      // allow NULL to clear description
+      setClauses.push(`description = ?`);
+      params.push(payload.description);
+    }
+    if (payload.image !== undefined) {
+      // allow NULL to clear image
+      setClauses.push(`image = ?`);
+      params.push(payload.image);
+    }
+    if (payload.is_active !== undefined) {
+      setClauses.push(`is_active = ?`);
+      params.push(payload.is_active);
+    }
+
+    // always update 'updated_by'
+    setClauses.push(`updated_by = ?`);
+    params.push(req.user.user_id);
+
+    // finalize query
+    const sql = `UPDATE food SET ${setClauses.join(", ")} WHERE food_id = ?`;
+    params.push(foodId);
+
+    const [result] = await db.query(sql, params);
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Food not found" });
     }
@@ -194,26 +217,51 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
   }
 });
 
-/* =============== DELETE: remove =============== */
+/* =============== DELETE: hard remove with FK fallback =============== */
 /**
  * DELETE /api/admin/menu/:food_id
+ * พยายามลบจริง (hard delete) ก่อน
+ * ถ้าติด FK (เช่น ถูกอ้างอิงโดย order_item) → fallback เป็น soft delete (is_active = 0)
  */
 router.delete("/:food_id", requireAdmin, async (req, res) => {
   try {
     const foodId = toNumber(req.params.food_id);
     if (!foodId) return res.status(400).json({ message: "Invalid food_id" });
 
-    const [result] = await db.query(`DELETE FROM food WHERE food_id=?`, [foodId]);
+    let result;
+    try {
+      [result] = await db.query(`DELETE FROM food WHERE food_id = ?`, [foodId]);
+    } catch (err) {
+      // FK protected: 1451 (Row is referenced), 1217 (Cannot delete or update a parent row)
+      const mysqlErr = err?.errno || err?.code;
+      if (mysqlErr === 1451 || mysqlErr === 1217) {
+        // Fallback: soft delete instead of hard delete
+        const [upd] = await db.query(
+          `UPDATE food SET is_active = 0, updated_by = ? WHERE food_id = ?`,
+          [req.user.user_id, foodId]
+        );
+        if (upd.affectedRows > 0) {
+          await safeLogActivity(req.user.user_id, foodId, "soft_delete", { reason: "FK protected" });
+          return res.json({ ok: true, softDeleted: true });
+        }
+        // if cannot soft delete for some reason, return conflict
+        return res.status(409).json({
+          message: "Cannot delete this menu item because it is referenced by existing orders.",
+          code: "ROW_REFERENCED",
+        });
+      }
+      throw err;
+    }
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Food not found" });
     }
 
     await safeLogActivity(req.user.user_id, foodId, "delete");
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (e) {
     console.error("DELETE /admin/menu/:food_id error:", e);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
