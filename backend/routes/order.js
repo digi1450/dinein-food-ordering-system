@@ -3,7 +3,12 @@ import { Router } from "express";
 import { db } from "../config/db.js";
 
 const router = Router();
-
+function allowDevOrigin(res, req) {
+  const origin = req.headers.origin;
+  if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+}
 /* ---------------------------------------------
    Helper: ดึงออเดอร์แบบ flatten + items
 ---------------------------------------------- */
@@ -160,10 +165,7 @@ router.get("/:id/stream", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  const origin = req.headers.origin;
-  if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  allowDevOrigin(res, req);
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -254,10 +256,7 @@ router.get("/stream-all", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  const origin = req.headers.origin;
-  if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  allowDevOrigin(res, req);
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -401,7 +400,7 @@ router.post("/", async (req, res) => {
 
 /* ---------------------------------------------
    PATCH /api/orders/:id/status
-   Body: { status: "accepted" | "preparing" | "served" | "completed" | "cancelled", note? }
+   Body: { status: "pending" | "preparing" | "served" | "completed" | "cancelled", note? }
 ---------------------------------------------- */
 router.patch("/:id/status", async (req, res) => {
   const orderId = Number(req.params.id);
@@ -411,7 +410,7 @@ router.patch("/:id/status", async (req, res) => {
     return res.status(400).json({ message: "Invalid order id" });
   }
   const ALLOWED = new Set([
-    "pending", "accepted", "preparing", "served", "completed", "cancelled",
+    "pending", "preparing", "served", "completed", "cancelled",
   ]);
   if (!ALLOWED.has(String(status))) {
     return res.status(400).json({ message: "Invalid status value" });
@@ -475,15 +474,17 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     );
     if (!row) return res.status(404).json({ message: "item not found" });
 
-    // อนุญาตให้ยกเลิกเฉพาะสถานะ pending เท่านั้น
-    if (String(row.status || '').toLowerCase() !== 'pending') {
-      return res.status(400).json({ message: "item cannot be cancelled now" });
+    // ลูกค้าจะยกเลิกได้เฉพาะสถานะ pending; แอดมินยกเลิกได้ทุกสถานะ
+    const role = (req.user && req.user.role) ? String(req.user.role).toLowerCase() : 'customer';
+    const isAdmin = role === 'admin';
+    if (!isAdmin && String(row.status || '').toLowerCase() !== 'pending') {
+      return res.status(409).json({ message: 'Only pending items can be cancelled by customer.' });
     }
 
     // 2) ยกเลิกรายการ
     await db.execute(
       `UPDATE order_item
-       SET status='cancelled'
+       SET status='cancelled', cancelled_at = NOW()
        WHERE order_item_id = ?`,
       [itemId]
     );
@@ -497,7 +498,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
          END
        ),0) AS total
        FROM order_item
-       WHERE order_id=? AND (status IS NULL OR status <> 'cancelled')`,
+       WHERE order_id=? AND (status IS NULL OR status != 'cancelled')`,
       [row.order_id]
     );
 
@@ -507,7 +508,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     const [[left]] = await db.execute(
       `SELECT COUNT(*) AS cnt
        FROM order_item
-       WHERE order_id=? AND (status IS NULL OR status <> 'cancelled')`,
+       WHERE order_id=? AND (status IS NULL OR status != 'cancelled')`,
       [row.order_id]
     );
 

@@ -12,7 +12,16 @@ router.use(requireAdmin);
 const ORDER_FLOWS = {
   pending: ["preparing", "cancelled"],
   preparing: ["served", "cancelled"],
-  served: ["completed"],
+  served: ["cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+// Allowed item-level transitions for admin
+const ITEM_FLOWS = {
+  pending: ["preparing", "cancelled"],
+  preparing: ["served", "cancelled"],
+  served: ["cancelled"],
   completed: [],
   cancelled: [],
 };
@@ -140,18 +149,10 @@ router.patch("/items/:orderItemId", async (req, res) => {
     }
     const item = rows[0];
 
-    // Validate allowed status transitions
-    const from = item.current_status;
-    const to = status;
-    const validTransitions = {
-      pending: ["preparing", "cancelled"],
-      preparing: ["served", "cancelled"],
-      served: [],
-      completed: [],
-      cancelled: [],
-    };
-
-    if (!validTransitions[from]?.includes(to)) {
+    // Validate allowed status transitions (admin)
+    const from = String(item.current_status || "").toLowerCase();
+    const to = String(status || "").toLowerCase();
+    if (!ITEM_FLOWS[from]?.includes(to)) {
       return res.status(400).json({ error: `Invalid status transition from ${from} to ${to}` });
     }
 
@@ -183,7 +184,7 @@ router.patch("/items/:orderItemId", async (req, res) => {
       `
       SELECT COALESCE(SUM(subtotal), 0) AS new_total
       FROM order_item
-      WHERE order_id = ? AND status <> 'cancelled'
+      WHERE order_id = ? AND status != 'cancelled'
       `,
       [item.order_id]
     );
@@ -219,21 +220,12 @@ router.patch("/items/:orderItemId", async (req, res) => {
     } = statusAgg || {};
     
     if (total_cnt > 0) {
-      // ถ้าทั้งหมดถูกยกเลิก
+      // ถ้าทั้งหมดถูกยกเลิก → ยกเลิกทั้งออเดอร์
       if (cancelled_cnt === total_cnt) {
         newOrderStatus = "cancelled";
       }
-      // ถ้าไม่มี pending/preparing/served เหลือ → ถือว่าเสร็จสิ้น
-      else if (
-        pending_cnt === 0 &&
-        preparing_cnt === 0 &&
-        served_cnt === 0 &&
-        completed_cnt > 0
-      ) {
-        newOrderStatus = "completed";
-      }
-      // ถ้ามี served อย่างน้อยหนึ่ง → served
-      else if (served_cnt > 0) {
+      // ถ้ามี served หรือ completed อย่างน้อยหนึ่งรายการ → ถือว่า "served" (อย่า promote เป็น completed ที่นี่)
+      else if (served_cnt > 0 || completed_cnt > 0) {
         newOrderStatus = "served";
       }
       // ถ้ามี preparing หรือ pending เหลือ → preparing
@@ -256,10 +248,10 @@ router.patch("/items/:orderItemId", async (req, res) => {
     try {
       await safeLogActivity(
         userId,
-        "order",
-        item.order_id,
+        "order_item",
+        Number(orderItemId),
         "status_change",
-        { order_item_id: Number(orderItemId), from: item.current_status, to: status, note: note ?? null }
+        { order_id: item.order_id, from: item.current_status, to: status, note: note ?? null }
       );
     } catch (e) {
       // non-blocking
@@ -303,6 +295,10 @@ const updateOrderStatusHandler = async (req, res) => {
   ) {
     return res.status(400).json({ error: "Invalid or missing status." });
   }
+  // Admin cannot mark completed; must come from checkout
+  if (next === "completed") {
+    return res.status(409).json({ error: "Completed is only set by customer checkout." });
+  }
 
   try {
     // read current order
@@ -332,7 +328,7 @@ const updateOrderStatusHandler = async (req, res) => {
     if (next === "cancelled") {
       // 1) cancel all order items that are not yet cancelled
       await pool.query(
-        "UPDATE order_item SET status = 'cancelled', cancelled_at = NOW() WHERE order_id = ? AND (status IS NULL OR status <> 'cancelled')",
+        "UPDATE order_item SET status = 'cancelled', cancelled_at = NOW() WHERE order_id = ? AND (status IS NULL OR status != 'cancelled')",
         [id]
       );
       // 2) set order to cancelled and zero out total

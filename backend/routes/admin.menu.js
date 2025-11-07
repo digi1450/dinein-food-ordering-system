@@ -1,24 +1,9 @@
 import { Router } from "express";
 import { db } from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
+import safeLogActivity from "../utils/safeLogActivity.js";
 
 const router = Router();
-
-/* =============== helpers =============== */
-
-// บันทึก activity แบบไม่ให้พังงานหลัก (เงียบถ้าไม่มีตาราง/คอลัมน์)
-async function safeLogActivity(userId, entityId, action, details = null) {
-  try {
-    await db.query(
-      `INSERT INTO admin_activity (user_id, entity_type, entity_id, action, details)
-       VALUES (?, 'food', ?, ?, ?)`,
-      [userId, entityId, action, details ? JSON.stringify(details) : null]
-    );
-  } catch (e) {
-    // ไม่ throw: กันงานหลักล้มเพราะตาราง audit ยังไม่พร้อม
-    console.warn("[admin_activity] skipped:", e?.message || e);
-  }
-}
 
 function toNumber(v) {
   const n = Number(v);
@@ -117,7 +102,7 @@ router.post("/", requireAdmin, async (req, res) => {
       [catId, food_name, prc, description, image, is_active ? 1 : 0, req.user.user_id, req.user.user_id]
     );
 
-    await safeLogActivity(req.user.user_id, r.insertId, "create", {
+    await safeLogActivity(req.user.user_id, "food", r.insertId, "create", {
       food_name,
       price: prc,
       category_id: catId,
@@ -209,7 +194,7 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
       return res.status(404).json({ message: "Food not found" });
     }
 
-    await safeLogActivity(req.user.user_id, foodId, "update", payload);
+    await safeLogActivity(req.user.user_id, "food", foodId, "update", payload);
     res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /admin/menu/:food_id error:", e);
@@ -241,7 +226,7 @@ router.delete("/:food_id", requireAdmin, async (req, res) => {
           [req.user.user_id, foodId]
         );
         if (upd.affectedRows > 0) {
-          await safeLogActivity(req.user.user_id, foodId, "soft_delete", { reason: "FK protected" });
+          await safeLogActivity(req.user.user_id, "food", foodId, "soft_delete", { reason: "FK protected" });
           return res.json({ ok: true, softDeleted: true });
         }
         // if cannot soft delete for some reason, return conflict
@@ -257,7 +242,7 @@ router.delete("/:food_id", requireAdmin, async (req, res) => {
       return res.status(404).json({ message: "Food not found" });
     }
 
-    await safeLogActivity(req.user.user_id, foodId, "delete");
+    await safeLogActivity(req.user.user_id, "food", foodId, "delete");
     return res.json({ ok: true });
   } catch (e) {
     console.error("DELETE /admin/menu/:food_id error:", e);

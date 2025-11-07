@@ -44,7 +44,7 @@ const pickOrderField = (data, keys = []) => {
 const statusStyle = (s = "") => {
   const k = s.toLowerCase();
   if (["pending"].includes(k)) return "bg-amber-200 text-slate-800 ring-1 ring-amber-300/60";
-  if (["accepted", "preparing", "cooking"].includes(k))
+  if (["preparing"].includes(k))
     return "bg-blue-200 text-slate-800 ring-1 ring-blue-300/60";
   if (["served"].includes(k)) return "bg-purple-200 text-slate-800 ring-1 ring-purple-300/60";
   if (["completed", "paid"].includes(k))
@@ -132,33 +132,6 @@ export default function OrderSummary() {
     }
   };
 
-  const promoteToNewestActive = async () => {
-    const t = cleanId(tableIdResolved);
-    if (!t) return;
-    try {
-      const r = await fetch(`${API_BASE}/orders?table_id=${t}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const list = (await r.json()) || [];
-      const newestActive = list.find(o => isActiveStatus(o.status));
-      if (newestActive?.order_id) {
-        const nextId = cleanId(newestActive.order_id);
-        setCurrentId(nextId);
-        // Make URL reflect the promoted order so user stays "pinned" to the new latest
-        try {
-          navigate(`/summary/${nextId}?table=${t}`, { replace: true });
-        } catch {}
-      } else {
-        // No active orders; clear the current card
-        setCurrentId(null);
-        setData(null);
-        try {
-          navigate(`/summary?table=${t}`, { replace: true });
-        } catch {}
-      }
-    } catch {
-      // silent
-    }
-  };
 
   const savedOrderId = useMemo(() => {
     // Prefer per-table remembered order id if a table id is resolvable; otherwise fall back to legacy keys
@@ -491,6 +464,7 @@ export default function OrderSummary() {
 
   const items = data?.items || [];
   const isClosed = ["completed", "paid"].includes(String(data?.status || "").toLowerCase());
+  const orderIsPending = String(data?.status || "").toLowerCase() === "pending";
   const derivedTotal = useMemo(() => {
     const isCancelledOrder = String(data?.status || "").toLowerCase() === "cancelled";
     if (!isCancelledOrder && data?.total_amount != null && Number.isFinite(Number(data.total_amount))) {
@@ -657,7 +631,7 @@ export default function OrderSummary() {
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
-                            {String(it?.status || "").toLowerCase() === "pending" && (
+                            {orderIsPending && String(it?.status || "").toLowerCase() === "pending" && (
                               <button
                                 type="button"
                                 onClick={() => handleCancelItem(it)}

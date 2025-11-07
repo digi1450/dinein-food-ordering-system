@@ -49,7 +49,7 @@ export default function AdminDashboard() {
   const nextStatuses = {
     pending: ["preparing", "cancelled"],
     preparing: ["served", "cancelled"],
-    served: ["completed"],
+    served: ["cancelled"], // allow admin to cancel even after served; no completed here
     completed: [],
     cancelled: []
   };
@@ -171,7 +171,7 @@ export default function AdminDashboard() {
     if (!confirm(`Delete "${food_name}"? This cannot be undone.`)) return;
     setDeletingId(food_id);
     try {
-      await adminDelete(`/admin/menu/${food_id}`);
+      await api.admin.delete(`/menu/${food_id}`);
       await loadMenu();
       alert("Deleted ✅");
       if (editingId === food_id) onCancelEdit();
@@ -267,11 +267,11 @@ export default function AdminDashboard() {
                   <span className="font-semibold">
                     {o.order_code || `Order #${o.order_id}`}
                   </span>
-                  <span className="opacity-70">{o.status}</span>
+                  <span className="opacity-70">{String(o.status || "").toUpperCase()}</span>
                 </div>
                 {/* Order status controls */}
                 <div className="flex gap-1 mb-2">
-                  {nextStatuses[o.status]?.map((s) => (
+                  {nextStatuses[String(o.status || "").toLowerCase()]?.map((s) => (
                     <button
                       key={s}
                       onClick={() => onUpdateOrderStatus(o, s)}
