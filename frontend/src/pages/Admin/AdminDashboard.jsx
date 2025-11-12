@@ -15,6 +15,41 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState([]);
   const [menu, setMenu] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [loadingBills, setLoadingBills] = useState(false);
+  // ---- Bills (Admin Billing) ----
+  const loadBills = async (status = "") => {
+    setLoadingBills(true);
+    try {
+      // secured admin route; use api.admin to send Authorization header
+      const query = status ? `?status=${encodeURIComponent(status)}` : "";
+      const data = await api.admin.get(`/billing${query}`);
+      setBills(Array.isArray(data?.list) ? data.list : []);
+    } catch (e) {
+      console.error("loadBills error:", e);
+      setBills([]);
+      alert("Failed to load bills");
+    } finally {
+      setLoadingBills(false);
+    }
+  };
+
+  const onMarkBillPaid = async (billId, method = "cash") => {
+    if (!confirm(`Confirm payment for Bill #${billId}?`)) return;
+    try {
+      // use admin endpoint defined in admin.billing.js
+      const res = await api.admin.post(`/billing/${billId}/confirm`, { method });
+      // backend returns { ok: true, bill, ... } or similar on success
+      if (res && res.ok === false) {
+        throw new Error(res?.error || "Confirm payment failed");
+      }
+      alert("Bill confirmed as PAID ✅");
+      await loadBills(); // refresh
+    } catch (e) {
+      console.error("onMarkBillPaid error:", e);
+      alert(e?.message || "Failed to confirm payment");
+    }
+  };
 
   const [editingId, setEditingId] = useState(null);   // food_id that is being edited; null = create-new
   const [saving, setSaving] = useState(false);
@@ -113,6 +148,7 @@ export default function AdminDashboard() {
     if (tab === "menu") loadMenu();
     if (tab === "activity") loadActivity();
     if (tab === "orders") loadOrders();
+    if (tab === "bills") loadBills();
   }, [tab]);
 
   // ---- helpers ----
@@ -218,6 +254,12 @@ export default function AdminDashboard() {
             Orders
           </button>
           <button
+            className={`px-3 py-1 border rounded ${tab==='bills' ? 'bg-white text-black' : 'hover:bg-white/10'}`}
+            onClick={() => setTab("bills")}
+          >
+            Bills
+          </button>
+          <button
             className={`px-3 py-1 border rounded ${tab==='menu' ? 'bg-white text-black' : 'hover:bg-white/10'}`}
             onClick={() => setTab("menu")}
           >
@@ -240,7 +282,99 @@ export default function AdminDashboard() {
           </button>
         </div>
       </div>
+      {/* Tab: Bills (Admin Billing) */}
+      {tab === "bills" && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-bold">Bills</h2>
+            <div className="flex gap-2">
+              <button
+                className="px-3 py-1 border rounded hover:bg-white/10"
+                onClick={() => loadBills()}
+                title="Show all statuses"
+              >
+                All
+              </button>
+              <button
+                className="px-3 py-1 border rounded hover:bg-white/10"
+                onClick={() => loadBills("pending_payment")}
+              >
+                Pending Payment
+              </button>
+              <button
+                className="px-3 py-1 border rounded hover:bg-white/10"
+                onClick={() => loadBills("paid")}
+              >
+                Paid
+              </button>
+              <button
+                className="px-3 py-1 border rounded hover:bg-white/10"
+                onClick={() => loadBills()}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
 
+          {loadingBills && <div className="opacity-70">Loading bills...</div>}
+          {!loadingBills && bills.length === 0 && (
+            <div className="opacity-70">No bills found.</div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {bills.map((b) => (
+              <div key={b.bill_id} className="border border-white/10 rounded p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="font-semibold">{b.bill_code || `Bill #${b.bill_id}`}</div>
+                    <div className="text-sm opacity-70">
+                      Table {b.table_label || b.table_id} • ฿{Number(b.total_amount || 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs opacity-50">
+                      Updated: {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                    </div>
+                  </div>
+                  <span className="text-xs px-2 py-1 border rounded">
+                    {String(b.status || "").toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    className="px-2 py-1 text-sm border rounded hover:bg-white/10"
+                    onClick={async () => {
+                      try {
+                        const data = await api.admin.get(`/billing/${b.bill_id}/summary`);
+                        const lines = (data?.items || []).map(
+                          (it) => `${it.food_name} × ${it.qty} — ฿${Number(it.line_total || 0).toFixed(2)}`
+                        );
+                        alert(
+                          `${b.bill_code || `Bill #${b.bill_id}`}\n` +
+                          `Total: ฿${Number(data?.totals?.total || b.total_amount || 0).toFixed(2)}\n\n` +
+                          (lines.join("\n") || "(no items)")
+                        );
+                      } catch (e) {
+                        alert("Failed to load bill summary");
+                      }
+                    }}
+                  >
+                    View Summary
+                  </button>
+
+                  {String(b.status) === "pending_payment" && (
+                    <button
+                      className="px-2 py-1 text-sm border rounded hover:bg-white/10"
+                      onClick={() => onMarkBillPaid(b.bill_id, "cash")}
+                    >
+                      Mark Paid
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Tab: Orders (Admin Management) */}
       {tab === "orders" && (
         <div>

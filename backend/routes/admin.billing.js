@@ -1,0 +1,164 @@
+// backend/routes/admin.billing.js
+import { Router } from "express";
+import pool from "../config/db.js";
+import { requireAdmin } from "../middleware/auth.js";
+
+const router = Router();
+
+// -----------------------------
+// GET /api/admin/billing
+// List bills with computed totals, hide placeholder OPEN bills with no items
+// -----------------------------
+router.get("/", requireAdmin, async (req, res) => {
+  const status = (req.query.status || "").trim();
+  const tableId = Number(req.query.table_id) || null;
+  const q = (req.query.q || "").trim();
+  const limit = Number(req.query.limit) > 0 ? Number(req.query.limit) : 50;
+
+  const where = [];
+  const params = [];
+  if (status) { where.push("b.status = ?"); params.push(status); }
+  if (tableId) { where.push("b.table_id = ?"); params.push(tableId); }
+  if (q) { where.push("b.bill_code LIKE ?"); params.push(`%${q}%`); }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const sql = `
+    SELECT
+      b.bill_id,
+      b.bill_code,
+      b.table_id,
+      b.status,
+      b.subtotal,
+      b.discount,
+      b.total_amount,
+      b.updated_at,
+      t.table_label,
+      SUM(CASE WHEN (oi.status IS NULL OR oi.status <> 'cancelled') THEN 1 ELSE 0 END) AS items_count,
+      COALESCE(SUM(
+        CASE WHEN (oi.status IS NULL OR oi.status <> 'cancelled') THEN
+          (CASE WHEN oi.subtotal IS NULL OR oi.subtotal = 0 THEN oi.unit_price * oi.quantity ELSE oi.subtotal END)
+        ELSE 0 END
+      ), 0) AS computed_total
+    FROM bill b
+    LEFT JOIN table_info  t  ON t.table_id = b.table_id
+    LEFT JOIN bill_order  bo ON bo.bill_id = b.bill_id
+    LEFT JOIN orders      o  ON o.order_id = bo.order_id
+    LEFT JOIN order_item  oi ON oi.order_id = bo.order_id
+    ${whereSql}
+    GROUP BY b.bill_id, b.bill_code, b.table_id, b.status, b.subtotal, b.discount, b.total_amount, b.updated_at, t.table_label
+    HAVING NOT (b.status = 'open' AND items_count = 0 AND computed_total = 0)
+    ORDER BY b.updated_at DESC, b.bill_id DESC
+    LIMIT ?`;
+
+  try {
+    const [rows] = await pool.query(sql, [...params, limit]);
+    return res.json({ list: rows });
+  } catch (e) {
+    console.error("[ADMIN/BILLING] list bills error:", e);
+    return res.status(500).json({ error: "Failed to fetch bills." });
+  }
+});
+
+// -----------------------------
+// GET /api/admin/billing/:billId/summary
+// -----------------------------
+router.get("/:billId/summary", requireAdmin, async (req, res) => {
+  const billId = Number(req.params.billId);
+  if (!Number.isFinite(billId) || billId <= 0) {
+    return res.status(400).json({ error: "Invalid bill id" });
+  }
+
+  const [[bill]] = await pool.query(
+    `SELECT bill_id,bill_code,table_id,status,subtotal,discount,total_amount,created_at,updated_at
+       FROM bill WHERE bill_id=?`,
+    [billId]
+  );
+  if (!bill) return res.status(404).json({ error: "Bill not found" });
+
+  const [items] = await pool.query(
+    `SELECT 
+        oi.food_id,
+        f.food_name,
+        COALESCE(o.customer_name, '') AS customer_name,
+        '' AS customer_phone,
+        COALESCE(o.notes, '') AS notes,
+        SUM(oi.quantity) AS qty,
+        ROUND(
+          SUM(CASE WHEN oi.subtotal IS NULL OR oi.subtotal = 0 THEN oi.unit_price * oi.quantity ELSE oi.subtotal END)
+          / NULLIF(SUM(oi.quantity), 0), 2
+        ) AS unit_price,
+        SUM(CASE WHEN oi.subtotal IS NULL OR oi.subtotal = 0 THEN oi.unit_price * oi.quantity ELSE oi.subtotal END) AS line_total
+     FROM bill_order bo
+     JOIN orders o      ON o.order_id = bo.order_id
+     JOIN order_item oi ON oi.order_id = bo.order_id AND (oi.status IS NULL OR oi.status <> 'cancelled')
+     JOIN food f        ON f.food_id = oi.food_id
+     WHERE bo.bill_id = ?
+     GROUP BY oi.food_id, f.food_name, customer_name, customer_phone, notes
+     ORDER BY f.food_name, customer_name`,
+    [billId]
+  );
+
+  return res.json({
+    bill,
+    items,
+    totals: {
+      subtotal: Number(bill.subtotal || 0),
+      discount: Number(bill.discount || 0),
+      total: Number(bill.total_amount || 0),
+    },
+  });
+});
+
+// -----------------------------
+// Shared confirm/mark-paid handler
+// -----------------------------
+async function confirmPaidHandler(req, res) {
+  const billId = Number(req.params.billId);
+  const method = String(req.body?.method || "cash");
+
+  if (!Number.isFinite(billId) || billId <= 0) {
+    return res.status(400).json({ error: "Invalid bill id" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[bill]] = await conn.query(
+      `SELECT bill_id, table_id, status, total_amount FROM bill WHERE bill_id=? FOR UPDATE`,
+      [billId]
+    );
+    if (!bill) { await conn.rollback(); return res.status(404).json({ error: "Bill not found" }); }
+    const st = String(bill.status || "");
+    if (!["pending_payment", "open"].includes(st)) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Bill must be open or pending_payment to mark as paid." });
+    }
+
+    const [rows] = await conn.query(`SELECT order_id FROM bill_order WHERE bill_id=? ORDER BY order_id ASC`, [billId]);
+    const firstOrderId = rows[0]?.order_id ?? null;
+
+    const [p] = await conn.query(
+      `INSERT INTO payment (order_id, bill_id, method, amount, status, paid_time)
+       VALUES (?,?,?,?, 'paid', NOW())`,
+      [firstOrderId, billId, method, bill.total_amount]
+    );
+
+    await conn.query(`UPDATE bill SET status='paid', updated_at=NOW() WHERE bill_id=?`, [billId]);
+
+    await conn.commit();
+    return res.json({ ok: true, payment_id: p.insertId });
+  } catch (e) {
+    await conn.rollback();
+    console.error("[ADMIN/BILLING] confirm/mark-paid error:", e);
+    return res.status(500).json({ error: "Failed to mark bill as paid." });
+  } finally {
+    conn.release();
+  }
+}
+
+// Register both endpoints so either URL works
+router.post("/:billId/mark-paid", requireAdmin, confirmPaidHandler);
+router.post("/:billId/confirm", requireAdmin, confirmPaidHandler);
+
+export default router;

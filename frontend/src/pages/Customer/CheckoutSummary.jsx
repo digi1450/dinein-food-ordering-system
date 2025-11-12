@@ -123,47 +123,33 @@ export default function CheckoutSummary() {
         setLoading(true);
         setErr("");
 
-        // 1) โหลด list ออเดอร์ของโต๊ะ
-        const res = await fetch(`${API_BASE}/orders?table_id=${encodeURIComponent(tableId)}`);
-        if (!res.ok) throw new Error("Failed to load orders");
-        const list = (await res.json()) || [];
+        // --- Ensure/start an open bill for this table (id or label like "T1") ---
+        try {
+          await fetch(`${API_BASE}/billing/checkout/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ table: String(tableId) }),
+          });
+        } catch (_) {
+          // non-blocking for customer view
+        }
 
-        // 2) กรองเอาเฉพาะออเดอร์ที่ยังไม่จบ (จ่าย/ยกเลิกแล้วไม่เอา)
-        const openOrders = list.filter(
-          (o) => !["paid", "completed", "cancelled", "canceled"].includes(String(o.status).toLowerCase())
-        );
+        // --- Load active orders via billing (this also auto-attaches unattached active orders) ---
+        const openRes = await fetch(`${API_BASE}/billing/open-orders?table=${encodeURIComponent(String(tableId))}`);
+        if (!openRes.ok) throw new Error("Failed to load open orders via billing");
+        const { bill_id, orders: openOrders } = await openRes.json();
 
-        // 3) ดึงรายละเอียดแต่ละออเดอร์แบบขนาน (Promise.all) เพื่อได้ items/metadata
-        const full = (await Promise.all(
-          openOrders.map(async (o) => {
-            try {
-              const r = await fetch(`${API_BASE}/orders/${o.order_id}`);
-              if (!r.ok) throw new Error("detail not ok");
-              const detail = await r.json();
-              return {
-                order_id: o.order_id,
-                table_id: o.table_id,
-                status: o.status,
-                total_amount: Number(o.total_amount || detail.total_amount || 0),
-                items: Array.isArray(detail.items) ? detail.items : [],
-                customer_name: coalesce(detail.customer_name, o.customer_name, detail.name, o.name, detail.customerName, o.customerName),
-                customer_phone: coalesce(detail.customer_phone, o.customer_phone, detail.phone, o.phone, detail.phone_number, o.phone_number, detail.tel, o.tel, detail.contact, o.contact, detail.customerPhone, o.customerPhone),
-                description: coalesce(detail.description, o.description, detail.note, o.note, detail.notes, o.notes, detail.comment, o.comment, detail.comments, o.comments, detail.special_request, o.special_request),
-              };
-            } catch {
-              return {
-                order_id: o.order_id,
-                table_id: o.table_id,
-                status: o.status,
-                total_amount: Number(o.total_amount || 0),
-                items: [],
-                customer_name: coalesce(o.customer_name, o.name, o.customerName),
-                customer_phone: coalesce(o.customer_phone, o.phone, o.phone_number, o.tel, o.contact, o.customerPhone),
-                description: coalesce(o.description, o.note, o.notes, o.comment, o.comments, o.special_request),
-              };
-            }
-          })
-        )).filter(Boolean);
+        // Map to the shape expected by mergeLines (already includes items per order)
+        const full = (openOrders || []).map((o) => ({
+          order_id: o.order_id,
+          table_id: o.table_id,
+          status: o.status,
+          total_amount: Number(o.total_amount || 0),
+          items: Array.isArray(o.items) ? o.items : [],
+          customer_name: coalesce(o.customer_name),
+          customer_phone: coalesce(o.customer_phone),
+          description: coalesce(o.description),
+        }));
 
         setOrders(full);
         setLines(mergeLines(full));
@@ -185,28 +171,30 @@ export default function CheckoutSummary() {
     if (!hasAnything || paying) return;
     setPaying(true);
     try {
-      // ยิงชำระ “ทุกออเดอร์ที่ยังเปิดอยู่” ทีละใบ
-      for (const o of orders) {
-        const res = await fetch(`${API_BASE}/payments/mark-paid/${o.order_id}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ method: "cash" }),
-        });
-        if (!res.ok) {
-          let msg = `Checkout failed at order ${o.order_id}`;
-          try {
-            const data = await res.json();
-            if (data?.message) msg = data.message;
-          } catch {}
-          throw new Error(msg);
-        }
-      }
-      // เคลียร์ตะกร้าใน localStorage ของโต๊ะนี้
-      try {
-        localStorage.removeItem(`cart_table_${tableId}`);
-      } catch {}
+      // 1) Ensure there is an open bill and attach any fresh active orders
+      const startRes = await fetch(`${API_BASE}/billing/checkout/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ table: String(tableId) }),
+      });
+      if (!startRes.ok) throw new Error("Cannot start/ensure bill for this table");
+      const startData = await startRes.json().catch(() => ({}));
+      const billId = startData.billId || startData.bill_id || startData.bill?.bill_id;
+      if (!billId) throw new Error("No bill_id returned");
 
-      // เสร็จแล้วพาไปหน้า checkout success
+      // 2) Confirm checkout → lock totals, mark orders completed, set bill.status = 'pending_payment'
+      const confirmRes = await fetch(`${API_BASE}/billing/checkout/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bill_id: Number(billId), method: "cash" }),
+      });
+      if (!confirmRes.ok) {
+        const data = await confirmRes.json().catch(() => ({}));
+        throw new Error(data?.error || data?.message || "Failed to confirm checkout");
+      }
+
+      // 3) Clear local cart for this table and navigate to success
+      try { localStorage.removeItem(`cart_table_${tableId}`); } catch {}
       nav(`/checkout/success?table=${encodeURIComponent(tableId ?? "")}`, { replace: true });
     } catch (e) {
       setErr(e.message || "Checkout failed");
@@ -324,7 +312,7 @@ export default function CheckoutSummary() {
           <div className="relative z-10 w-[90%] max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-slate-900">Confirm checkout?</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Your open orders for table {tableId} will be merged and marked as paid.
+              Your open orders for table {tableId} will be merged and sent to cashier (pending payment).
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button

@@ -6,12 +6,13 @@ dotenv.config();
 
 import menuRoutes from "./routes/menu.js";
 import orderRoutes from "./routes/order.js";
-import adminRoutes from "./routes/admin.js";
 import tableRoutes from "./routes/table.js";
 import paymentRoutes from "./routes/payment.js";
+import billingRouter from "./routes/billing.js";
 import authRoutes from "./routes/auth.js";
 import adminMenuRoutes from "./routes/admin.menu.js";
 import adminOrdersRoutes from "./routes/admin.orders.js";
+import adminBillingRouter from "./routes/admin.billing.js";
 
 const app = express();
 app.use(cors({
@@ -19,15 +20,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.use("/api/admin", authRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/admin", authRoutes); // expose /api/admin/login for AdminLogin.jsx
 app.use("/api/admin/menu", adminMenuRoutes);
 app.use("/api/admin/orders", adminOrdersRoutes);
-app.use("/api/admin", adminRoutes);
+app.use("/api/billing", billingRouter);
+
 
 app.use("/api/menu", menuRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/tables", tableRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/admin/billing", adminBillingRouter);
 
 
 app.get("/", (_req, res) => res.send("Food POS API running"));
