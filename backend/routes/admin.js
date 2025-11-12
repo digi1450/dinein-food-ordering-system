@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../config/db.js";
+import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
@@ -10,13 +10,13 @@ router.post("/", requireAdmin, async (req, res) => {
   if (!category_id || !food_name || price == null)
     return res.status(400).json({ message: "Missing fields" });
 
-  const [r] = await db.query(
+  const [r] = await pool.query(
     `INSERT INTO food (category_id, food_name, price, description, created_by, updated_by)
      VALUES (?,?,?,?,?,?)`,
     [category_id, food_name, price, description, req.user.user_id, req.user.user_id]
   );
 
-  await db.query(
+  await pool.query(
     `INSERT INTO admin_activity (user_id, entity_type, entity_id, action, details)
      VALUES (?, 'food', ?, 'create', JSON_OBJECT('food_name', ?, 'price', ?))`,
     [req.user.user_id, r.insertId, food_name, price]

@@ -1,5 +1,6 @@
+// HomePage.jsx
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 
 // Fixed visuals (images placed in frontend/public/images/)
@@ -9,14 +10,6 @@ const VISUALS = [
   { key: "desserts",   label: "Desserts",   img: "/images/dessert.jpg",    aliases: ["dessert", "desserts"] },
   { key: "drinks",     label: "Drinks",     img: "/images/drink.jpg",      aliases: ["drink", "drinks"] },
 ];
-
-function matchVisual(catName = "") {
-  const n = String(catName).toLowerCase();
-  for (const v of VISUALS) {
-    if (v.aliases.some((a) => n === a || n.startsWith(a))) return v;
-  }
-  return null;
-}
 
 export default function HomePage() {
   const nav = useNavigate();
@@ -30,14 +23,12 @@ export default function HomePage() {
   // Derived list merged with fixed visuals, and FORCE display order:
   // Appetizers → Mains → Desserts → Drinks
   const visualCats = useMemo(() => {
-    // Build a matcher: alias -> VISUAL key
     const aliasToKey = new Map();
     for (const v of VISUALS) {
       for (const a of v.aliases) aliasToKey.set(String(a).toLowerCase(), v.key);
     }
 
-    // Index API categories by matched visual key (using aliases)
-    const byKey = new Map(); // key -> api category
+    const byKey = new Map();
     if (Array.isArray(cats)) {
       for (const c of cats) {
         const name = String(c?.category_name || c?.name || "").toLowerCase();
@@ -49,16 +40,12 @@ export default function HomePage() {
             break;
           }
         }
-        // fallback: direct name
         if (!matchedKey && aliasToKey.has(name)) matchedKey = aliasToKey.get(name);
-        if (matchedKey && !byKey.has(matchedKey)) {
-          byKey.set(matchedKey, c);
-        }
+        if (matchedKey && !byKey.has(matchedKey)) byKey.set(matchedKey, c);
       }
     }
 
-    // Emit EXACTLY 4 cards in the desired fixed order
-    return VISUALS.map((v, i) => {
+    return VISUALS.map((v) => {
       const c = byKey.get(v.key);
       const id = Number.isFinite(Number(c?.category_id)) ? Number(c.category_id) : v.key;
       const name = c?.category_name || c?.name || v.label;
@@ -93,16 +80,12 @@ export default function HomePage() {
       alert("Missing table id in URL (use ?table=1)");
       return;
     }
-    // catId can be numeric (from DB) or our slug (e.g., 'mains')
     nav(`/menu?table=${tableId}&cat=${encodeURIComponent(catId)}`);
   };
 
   return (
-    <div
-      className="min-h-screen w-full text-slate-900
-      bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fff,#ffe6c4)]"
-    >
-      {/* Header (match Select Table tone) */}
+    <div className="min-h-screen w-full text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fff,#ffe6c4)]">
+      {/* Header */}
       <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="font-semibold tracking-wide">Home</div>
@@ -128,7 +111,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Category cards (image + label) */}
         {!loading && (
           <div className="flex flex-wrap justify-center gap-8">
             {visualCats.map((c, idx) => (
@@ -154,9 +136,7 @@ export default function HomePage() {
                   )}
                 </div>
 
-                {/* bottom accent bar (same vibe as Select Table) */}
-                <div className="absolute -bottom-2 left-4 right-4 h-2 rounded-full
-                                bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 opacity-90" />
+                <div className="absolute -bottom-2 left-4 right-4 h-2 rounded-full bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 opacity-90" />
               </button>
             ))}
           </div>

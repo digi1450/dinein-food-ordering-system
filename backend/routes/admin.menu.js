@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../config/db.js";
+import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
 import safeLogActivity from "../utils/safeLogActivity.js";
 
@@ -22,7 +22,7 @@ function ensureAtLeastOneField(obj) {
  */
 router.get("/", requireAdmin, async (_req, res) => {
   try {
-    const [rows] = await db.query(
+    const [rows] = await pool.query(
       `SELECT 
          f.food_id, f.food_name, f.price, f.is_active, 
          f.category_id, c.category_name,
@@ -49,7 +49,7 @@ router.get("/:food_id", requireAdmin, async (req, res) => {
     const foodId = toNumber(req.params.food_id);
     if (!foodId) return res.status(400).json({ message: "Invalid food_id" });
 
-    const [rows] = await db.query(
+    const [rows] = await pool.query(
       `SELECT 
          f.food_id, f.food_name, f.price, f.is_active, 
          f.category_id, c.category_name,
@@ -92,10 +92,10 @@ router.post("/", requireAdmin, async (req, res) => {
     }
 
     // (optional) ตรวจว่าหมวดมีจริงไหม
-    const [cat] = await db.query(`SELECT 1 FROM category WHERE category_id=?`, [catId]);
+    const [cat] = await pool.query(`SELECT 1 FROM category WHERE category_id=?`, [catId]);
     if (!cat.length) return res.status(400).json({ message: "category_id not found" });
 
-    const [r] = await db.query(
+    const [r] = await pool.query(
       `INSERT INTO food 
          (category_id, food_name, price, description, image, is_active, created_by, updated_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -143,7 +143,7 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
 
     // validate category_id only when provided (and not null)
     if (payload.category_id !== undefined && payload.category_id !== null) {
-      const [cat] = await db.query(`SELECT 1 FROM category WHERE category_id=?`, [payload.category_id]);
+      const [cat] = await pool.query(`SELECT 1 FROM category WHERE category_id=?`, [payload.category_id]);
       if (!cat.length) return res.status(400).json({ message: "category_id not found" });
     }
 
@@ -189,7 +189,7 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
     const sql = `UPDATE food SET ${setClauses.join(", ")} WHERE food_id = ?`;
     params.push(foodId);
 
-    const [result] = await db.query(sql, params);
+    const [result] = await pool.query(sql, params);
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Food not found" });
     }
@@ -215,13 +215,13 @@ router.delete("/:food_id", requireAdmin, async (req, res) => {
 
     let result;
     try {
-      [result] = await db.query(`DELETE FROM food WHERE food_id = ?`, [foodId]);
+      [result] = await pool.query(`DELETE FROM food WHERE food_id = ?`, [foodId]);
     } catch (err) {
       // FK protected: 1451 (Row is referenced), 1217 (Cannot delete or update a parent row)
       const mysqlErr = err?.errno || err?.code;
       if (mysqlErr === 1451 || mysqlErr === 1217) {
         // Fallback: soft delete instead of hard delete
-        const [upd] = await db.query(
+        const [upd] = await pool.query(
           `UPDATE food SET is_active = 0, updated_by = ? WHERE food_id = ?`,
           [req.user.user_id, foodId]
         );

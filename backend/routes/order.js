@@ -1,6 +1,6 @@
 // backend/routes/order.js
 import { Router } from "express";
-import { db } from "../config/db.js";
+import pool from "../config/db.js";
 
 const router = Router();
 function allowDevOrigin(res, req) {
@@ -14,7 +14,7 @@ function allowDevOrigin(res, req) {
 ---------------------------------------------- */
 async function getOrderFlat(orderId) {
   // ข้อมูลหัวออเดอร์
-  const [orderRows] = await db.execute(
+  const [orderRows] = await pool.query(
     `SELECT 
        o.order_id,
        o.table_id,
@@ -33,7 +33,7 @@ async function getOrderFlat(orderId) {
   if (!orderRows.length) return null;
 
   // รายการอาหารในออเดอร์
-  const [itemRows] = await db.execute(
+  const [itemRows] = await pool.query(
     `SELECT 
        oi.order_item_id,
        oi.food_id,
@@ -93,7 +93,7 @@ function subscribeAdminFeed(res) {
 }
 
 async function getRecentOrders(limit = 30) {
-  const [rows] = await db.execute(
+  const [rows] = await pool.query(
     `SELECT 
        o.order_id,
        o.table_id,
@@ -241,7 +241,7 @@ router.get("/", async (req, res) => {
       ORDER BY o.created_at DESC, o.order_id DESC
       LIMIT 200
     `;
-    const [rows] = await db.execute(sql, args);
+    const [rows] = await pool.query(sql, args);
     return res.json(rows);
   } catch (err) {
     console.error("GET /api/orders error:", err);
@@ -313,7 +313,7 @@ router.post("/", async (req, res) => {
 
     // ดึงราคาอาหาร
     const placeholders = ids.map(() => "?").join(",");
-    const [priceRows] = await db.execute(
+    const [priceRows] = await pool.query(
       `SELECT food_id, price FROM food WHERE food_id IN (${placeholders})`,
       ids
     );
@@ -337,12 +337,12 @@ router.post("/", async (req, res) => {
 
     const totalAmount = orderItems.reduce((sum, it) => sum + it.subtotal, 0);
 
-    const conn = await db.getConnection();
+    const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
 
       // บันทึกหัวออเดอร์
-      const [orderRes] = await conn.execute(
+      const [orderRes] = await conn.query(
         `INSERT INTO orders 
            (table_id, status, customer_name, phone, notes, created_at, total_amount)
          VALUES (?, 'pending', ?, ?, ?, NOW(), ?)`,
@@ -351,7 +351,7 @@ router.post("/", async (req, res) => {
       const orderId = Number(orderRes.insertId);
       
       // หลังได้ orderId แล้ว
-      await conn.execute(
+      await conn.query(
         `UPDATE table_info SET status='occupied' WHERE table_id=?`,
         [table_id]
       );
@@ -365,7 +365,7 @@ router.post("/", async (req, res) => {
         "pending",
       ]);
       const placeholdersRow = orderItems.map(() => "(?,?,?,?,?,?)").join(",");
-      await conn.execute(
+      await conn.query(
         `INSERT INTO order_item (order_id, food_id, quantity, unit_price, subtotal, status)
          VALUES ${placeholdersRow}`,
         values
@@ -418,14 +418,14 @@ router.patch("/:id/status", async (req, res) => {
 
   try {
     // 1) อ่านสถานะก่อนหน้า (และ user_id ถ้าผูกผู้สั่งงานไว้)
-    const [[prev]] = await db.execute(
+    const [[prev]] = await pool.query(
       `SELECT status, user_id FROM orders WHERE order_id=?`,
       [orderId]
     );
     if (!prev) return res.status(404).json({ message: "Order not found" });
 
     // 2) อัปเดตสถานะใหม่
-    const [r] = await db.execute(
+    const [r] = await pool.query(
       `UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?`,
       [status, orderId]
     );
@@ -435,7 +435,7 @@ router.patch("/:id/status", async (req, res) => {
 
     // 3) บันทึกลง order_status_log
     //    - ถ้ายังไม่มีระบบ auth ให้ใช้ user_id = prev.user_id || 1 ชั่วคราว
-    await db.execute(
+    await pool.query(
       `INSERT INTO order_status_log (order_id, user_id, from_status, to_status, note, created_at)
        VALUES (?, ?, ?, ?, ?, NOW())`,
       [orderId, prev?.user_id ?? 1, prev.status, status, note]
@@ -466,7 +466,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     }
 
     // 1) ดึงข้อมูลรายการ
-    const [[row]] = await db.execute(
+    const [[row]] = await pool.query(
       `SELECT order_item_id, order_id, status
        FROM order_item
        WHERE order_item_id = ?`,
@@ -482,7 +482,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     }
 
     // 2) ยกเลิกรายการ
-    await db.execute(
+    await pool.query(
       `UPDATE order_item
        SET status='cancelled', cancelled_at = NOW()
        WHERE order_item_id = ?`,
@@ -490,7 +490,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     );
 
     // 3) คำนวณยอดคงเหลือของออเดอร์ และอัปเดตหัวออเดอร์
-    const [[sumRow]] = await db.execute(
+    const [[sumRow]] = await pool.query(
       `SELECT COALESCE(SUM(
          CASE
            WHEN subtotal IS NOT NULL THEN subtotal
@@ -505,7 +505,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
     const remainingTotal = Number(sumRow.total || 0);
 
     // มีรายการที่ยังไม่ถูกยกเลิกเหลืออยู่ไหม
-    const [[left]] = await db.execute(
+    const [[left]] = await pool.query(
       `SELECT COUNT(*) AS cnt
        FROM order_item
        WHERE order_id=? AND (status IS NULL OR status != 'cancelled')`,
@@ -514,7 +514,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
 
     if (Number(left.cnt) === 0) {
       // ไม่มีรายการเหลือ → ปิดออเดอร์นี้เป็น cancelled และตั้งยอดเป็น 0
-      await db.execute(
+      await pool.query(
         `UPDATE orders
          SET status='cancelled', total_amount=0, updated_at=NOW()
          WHERE order_id=?`,
@@ -522,7 +522,7 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
       );
     } else {
       // ยังมีรายการเหลือ → อัปเดตยอดรวมใหม่
-      await db.execute(
+      await pool.query(
         `UPDATE orders SET total_amount=?, updated_at=NOW() WHERE order_id=?`,
         [remainingTotal, row.order_id]
       );

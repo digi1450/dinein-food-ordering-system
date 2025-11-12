@@ -1,5 +1,6 @@
+// OrderSummary.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 
 const cleanId = (v) => {
@@ -72,7 +73,6 @@ export default function OrderSummary() {
   const [error, setError] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
   const [cancelErr, setCancelErr] = useState("");
-  const navigate = useNavigate();
   const handleCancelItem = async (item) => {
     // Show confirmation dialog before proceeding
     const confirmed = window.confirm("Are you sure you want to cancel this item?");

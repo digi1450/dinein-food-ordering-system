@@ -1,5 +1,5 @@
 import express from "express";
-import { db } from "../config/db.js";
+import pool from "../config/db.js";
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ router.get("/", async (req, res) => {
     res.setHeader("Expires", "0");
     res.setHeader("Surrogate-Control", "no-store");
 
-    const [rows] = await db.execute(`
+    const [rows] = await pool.query(`
       SELECT
         t.table_id,
         t.table_label,

@@ -5,24 +5,30 @@ export default function CheckoutSuccess() {
   const { search } = useLocation();
   const qs = new URLSearchParams(search);
   const tableId = qs.get("table");
-  const orderId = qs.get("order");
-  const toSummaryHref = orderId
-    ? `/summary/${orderId}${tableId ? `?table=${tableId}` : ""}`
-    : (tableId ? `/summary?table=${tableId}` : `/summary`);
   const toHomeHref = tableId ? `/home?table=${tableId}` : `/home`;
 
   useEffect(() => {
-    // Clear order-related localStorage data
-    localStorage.removeItem('last_order_id');
-    localStorage.removeItem('currentOrderId');
-    localStorage.removeItem('cart');
-    localStorage.removeItem('order');
+    // Clear order-related localStorage data (including per-table keys)
+    try {
+      if (tableId) {
+        localStorage.removeItem(`cart_table_${tableId}`);
+        localStorage.removeItem(`last_order_id_by_table_${tableId}`);
+      }
+      // Legacy / generic keys
+      localStorage.removeItem("last_order_id");
+      localStorage.removeItem("currentOrderId");
+      localStorage.removeItem("cart");
+      localStorage.removeItem("order");
+    } catch {
+      // ignore storage errors (e.g., private mode)
+    }
 
     const timer = setTimeout(() => {
       window.location.href = toHomeHref;
     }, 10000);
+
     return () => clearTimeout(timer);
-  }, [toHomeHref]);
+  }, [toHomeHref, tableId]);
 
   return (
     <div className="min-h-screen text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_650px_at_120%_0%,#ffd9e0,transparent),linear-gradient(180deg,#ffffff,#ffe8cc)]">

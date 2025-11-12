@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../config/db.js";
+import pool from "../config/db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 
@@ -10,7 +10,7 @@ router.post("/login", async (req, res) => {
   if (!username || !password)
     return res.status(400).json({ message: "Missing credentials" });
 
-  const [rows] = await db.query(
+  const [rows] = await pool.query(
     "SELECT user_id, username, password, role FROM user WHERE username=?",
     [username]
   );

@@ -270,20 +270,22 @@ export default function AdminDashboard() {
   // ---- helpers ----
   const onSaveMenu = async (e) => {
     e.preventDefault();
+
+    const payload = {
+      category_id: Number(form.category_id),
+      food_name: form.food_name.trim(),
+      price: Number(form.price),
+      description: form.description.trim() || null,
+      is_active: form.is_active ? 1 : 0,
+    };
+
+    if (!payload.food_name || !Number.isFinite(payload.price)) {
+      alert("Please fill food name and valid price");
+      return;
+    }
+
     setSaving(true);
     try {
-      const payload = {
-        category_id: Number(form.category_id),
-        food_name: form.food_name.trim(),
-        price: Number(form.price),
-        description: form.description.trim() || null,
-        is_active: form.is_active ? 1 : 0,
-      };
-      if (!payload.food_name || !Number.isFinite(payload.price)) {
-        alert("Please fill food name and valid price");
-        return;
-      }
-
       if (editingId) {
         await api.admin.patch(`/menu/${editingId}`, payload);
         alert("Menu updated ✅");
@@ -340,22 +342,6 @@ export default function AdminDashboard() {
     nav("/admin/login", { replace: true });
   };
 
-  async function adminDelete(path) {
-    const token = localStorage.getItem("token");
-    // ensure /admin prefix for secured admin routes
-    const normalized = path.startsWith("/admin/") ? path : `/admin${path}`;
-    const r = await fetch(`${API_BASE}${normalized}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!r.ok) {
-      const msg = (await r.text().catch(() => "")) || r.statusText || "Delete failed";
-      throw new Error(msg);
-    }
-    return true;
-  }
 
   return (
     <div className="min-h-screen bg-black text-white p-6">

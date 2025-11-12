@@ -43,15 +43,6 @@ export default function MenuPage() {
     })();
   }, [tableId]);
 
-  // latest order for this table (if any)
-  const lastOrderId = (() => {
-    try {
-      const n = Number(localStorage.getItem("last_order_id"));
-      return Number.isFinite(n) && n > 0 ? n : null;
-    } catch {
-      return null;
-    }
-  })();
 
   useEffect(() => {
     if (!tableId) nav("/", { replace: true });
@@ -99,8 +90,18 @@ export default function MenuPage() {
   }, [catId]);
 
   useEffect(() => {
-    const c = JSON.parse(localStorage.getItem(cartKey) || "[]");
-    setCartCount(c.reduce((n, it) => n + (it.quantity || 0), 0));
+    try {
+      const raw = localStorage.getItem(cartKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const safeArray = Array.isArray(parsed) ? parsed : [];
+      setCartCount(safeArray.reduce((n, it) => n + (it.quantity || 0), 0));
+    } catch {
+      // ถ้า parse พัง (ข้อมูลเสียหาย) ให้เคลียร์แล้วเริ่มใหม่
+      try {
+        localStorage.removeItem(cartKey);
+      } catch {}
+      setCartCount(0);
+    }
   }, [cartKey]);
 
   const toCat = (nextCat) => {
@@ -109,6 +110,10 @@ export default function MenuPage() {
   };
 
   const addToCart = (item) => {
+    if (!tableId) {
+      alert("Missing table id (use ?table=1)");
+      return;
+    }
     const cart = JSON.parse(localStorage.getItem(cartKey) || "[]");
     const idx = cart.findIndex((x) => x.food_id === item.food_id);
     if (idx >= 0) cart[idx].quantity += 1;
