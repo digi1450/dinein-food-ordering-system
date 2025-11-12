@@ -44,9 +44,10 @@ router.get("/", requireAdmin, async (req, res) => {
     LEFT JOIN bill_order  bo ON bo.bill_id = b.bill_id
     LEFT JOIN orders      o  ON o.order_id = bo.order_id
     LEFT JOIN order_item  oi ON oi.order_id = bo.order_id
-    ${whereSql}
+    WHERE b.status IN ('pending_payment','paid')
+    ${whereSql ? `AND ${whereSql.replace(/^WHERE\s+/,'')}` : ''}
     GROUP BY b.bill_id, b.bill_code, b.table_id, b.status, b.subtotal, b.discount, b.total_amount, b.updated_at, t.table_label
-    HAVING NOT (b.status = 'open' AND items_count = 0 AND computed_total = 0)
+    HAVING (items_count > 0 OR computed_total > 0 OR b.total_amount > 0)
     ORDER BY b.updated_at DESC, b.bill_id DESC
     LIMIT ?`;
 
@@ -56,6 +57,99 @@ router.get("/", requireAdmin, async (req, res) => {
   } catch (e) {
     console.error("[ADMIN/BILLING] list bills error:", e);
     return res.status(500).json({ error: "Failed to fetch bills." });
+  }
+});
+
+// -----------------------------
+// GET /api/admin/billing/current
+// Return 1 row per table with its latest pending_payment bill (if any)
+// -----------------------------
+router.get("/current", requireAdmin, async (_req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      WITH latest_pending AS (
+        SELECT
+          b.*,
+          ROW_NUMBER() OVER (PARTITION BY b.table_id ORDER BY b.updated_at DESC, b.bill_id DESC) AS rn
+        FROM bill b
+        WHERE b.status = 'pending_payment'
+      )
+      SELECT
+        t.table_id,
+        t.table_label,
+        lp.bill_id,
+        lp.bill_code,
+        lp.status,
+        lp.subtotal,
+        lp.discount,
+        lp.total_amount,
+        lp.updated_at
+      FROM table_info t
+      LEFT JOIN latest_pending lp
+        ON lp.table_id = t.table_id AND lp.rn = 1
+      ORDER BY t.table_id ASC
+    `);
+    res.json({ list: rows });
+  } catch (e) {
+    console.error("GET /admin/billing/current error:", e);
+    res.status(500).json({ error: "Failed to fetch current bills." });
+  }
+});
+
+// -----------------------------
+// GET /api/admin/billing/past
+// List only paid bills (most recent first)
+// -----------------------------
+router.get("/past", requireAdmin, async (req, res) => {
+  const tableId = Number(req.query.table_id) || null;
+  const q = (req.query.q || "").trim();
+  const limit = Number(req.query.limit) > 0 ? Number(req.query.limit) : 50;
+
+  const where = ["b.status = 'paid'"];
+  const params = [];
+  if (tableId) { where.push("b.table_id = ?"); params.push(tableId); }
+  if (q) { where.push("b.bill_code LIKE ?"); params.push(`%${q}%`); }
+
+  const sql = `
+    SELECT
+      b.bill_id, b.bill_code, b.table_id, b.status, b.subtotal, b.discount, b.total_amount, b.updated_at,
+      t.table_label
+    FROM bill b
+    LEFT JOIN table_info t ON t.table_id = b.table_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY b.updated_at DESC, b.bill_id DESC
+    LIMIT ?`;
+  try {
+    const [rows] = await pool.query(sql, [...params, limit]);
+    res.json({ list: rows });
+  } catch (e) {
+    console.error("GET /admin/billing/past error:", e);
+    res.status(500).json({ error: "Failed to fetch past bills." });
+  }
+});
+
+// -----------------------------
+// GET /api/admin/billing/by-table/:tableId/latest
+// Latest pending_payment bill for a table (or null)
+// -----------------------------
+router.get("/by-table/:tableId/latest", requireAdmin, async (req, res) => {
+  const tableId = Number(req.params.tableId);
+  if (!Number.isFinite(tableId) || tableId <= 0) {
+    return res.status(400).json({ error: "Invalid table id" });
+  }
+  try {
+    const [[row]] = await pool.query(
+      `SELECT bill_id, bill_code, table_id, status, subtotal, discount, total_amount, updated_at
+       FROM bill
+       WHERE table_id = ? AND status = 'pending_payment'
+       ORDER BY updated_at DESC, bill_id DESC
+       LIMIT 1`,
+      [tableId]
+    );
+    res.json({ bill: row || null });
+  } catch (e) {
+    console.error("GET /admin/billing/by-table/:tableId/latest error:", e);
+    res.status(500).json({ error: "Failed to fetch latest bill for table." });
   }
 });
 
@@ -80,7 +174,7 @@ router.get("/:billId/summary", requireAdmin, async (req, res) => {
         oi.food_id,
         f.food_name,
         COALESCE(o.customer_name, '') AS customer_name,
-        '' AS customer_phone,
+        COALESCE(o.phone, '') AS customer_phone,
         COALESCE(o.notes, '') AS notes,
         SUM(oi.quantity) AS qty,
         ROUND(
@@ -89,7 +183,7 @@ router.get("/:billId/summary", requireAdmin, async (req, res) => {
         ) AS unit_price,
         SUM(CASE WHEN oi.subtotal IS NULL OR oi.subtotal = 0 THEN oi.unit_price * oi.quantity ELSE oi.subtotal END) AS line_total
      FROM bill_order bo
-     JOIN orders o      ON o.order_id = bo.order_id
+     JOIN orders o      ON o.order_id = bo.order_id AND o.status = 'completed'
      JOIN order_item oi ON oi.order_id = bo.order_id AND (oi.status IS NULL OR oi.status <> 'cancelled')
      JOIN food f        ON f.food_id = oi.food_id
      WHERE bo.bill_id = ?
@@ -130,9 +224,9 @@ async function confirmPaidHandler(req, res) {
     );
     if (!bill) { await conn.rollback(); return res.status(404).json({ error: "Bill not found" }); }
     const st = String(bill.status || "");
-    if (!["pending_payment", "open"].includes(st)) {
+    if (st !== "pending_payment") {
       await conn.rollback();
-      return res.status(409).json({ error: "Bill must be open or pending_payment to mark as paid." });
+      return res.status(409).json({ error: "Bill must be pending_payment to mark as paid." });
     }
 
     const [rows] = await conn.query(`SELECT order_id FROM bill_order WHERE bill_id=? ORDER BY order_id ASC`, [billId]);
@@ -145,6 +239,9 @@ async function confirmPaidHandler(req, res) {
     );
 
     await conn.query(`UPDATE bill SET status='paid', updated_at=NOW() WHERE bill_id=?`, [billId]);
+
+    // best-effort: make sure table is free for the next session
+    await conn.query(`UPDATE table_info SET status = 'available' WHERE table_id = ?`, [bill.table_id]);
 
     await conn.commit();
     return res.json({ ok: true, payment_id: p.insertId });

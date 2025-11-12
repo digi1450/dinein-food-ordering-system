@@ -4,6 +4,46 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import API_BASE from "../../lib/apiBase";
 
+// Prefer a real bill (has bill_id) over a placeholder row for the same table.
+function normalizeCurrentBills(list) {
+  if (!Array.isArray(list)) return [];
+  const byTable = new Map();
+  for (const r of list) {
+    const key = r?.table_id ?? r?.table_label ?? "";
+    if (!key) continue;
+    const existing = byTable.get(key);
+    if (!existing) {
+      byTable.set(key, r);
+      continue;
+    }
+    // score: real bill (bill_id truthy) > placeholder; tie-breaker by updated_at then bill_id
+    const score = (x) => (x?.bill_id ? 2 : 1);
+    const exScore = score(existing);
+    const newScore = score(r);
+    if (newScore > exScore) {
+      byTable.set(key, r);
+    } else if (newScore === exScore) {
+      const exTime = existing?.updated_at ? new Date(existing.updated_at).getTime() : 0;
+      const newTime = r?.updated_at ? new Date(r.updated_at).getTime() : 0;
+      if (newTime > exTime) {
+        byTable.set(key, r);
+      } else if (newTime === exTime) {
+        // final tie-breaker by higher bill_id
+        const exId = Number(existing?.bill_id || 0);
+        const newId = Number(r?.bill_id || 0);
+        if (newId > exId) byTable.set(key, r);
+      }
+    }
+  }
+  // stable order by table_id (or label) to keep slots consistent
+  return Array.from(byTable.values()).sort((a, b) => {
+    const ta = Number(a?.table_id || 0), tb = Number(b?.table_id || 0);
+    if (ta && tb) return ta - tb;
+    const la = String(a?.table_label || ""), lb = String(b?.table_label || "");
+    return la.localeCompare(lb);
+  });
+}
+
 
 export default function AdminDashboard() {
   const nav = useNavigate();
@@ -15,22 +55,98 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState([]);
   const [menu, setMenu] = useState([]);
   const [activity, setActivity] = useState([]);
-  const [bills, setBills] = useState([]);
-  const [loadingBills, setLoadingBills] = useState(false);
   // ---- Bills (Admin Billing) ----
-  const loadBills = async (status = "") => {
-    setLoadingBills(true);
+  const [currentBills, setCurrentBills] = useState([]); // one (latest) pending_payment per table
+  const [pastBills, setPastBills] = useState([]);       // paid bills (history)
+  const [loadingCurrent, setLoadingCurrent] = useState(false);
+  const [loadingPast, setLoadingPast] = useState(false);
+
+  // ===== Bill Summary modal state =====
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryBill, setSummaryBill] = useState(null);
+  const [summaryItems, setSummaryItems] = useState([]);
+  const [summaryTotal, setSummaryTotal] = useState(0);
+
+  const coalesce = (...vals) => {
+    for (const v of vals) {
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim();
+    }
+    return "";
+  };
+
+  function mergeBillLines(items = []) {
+    const map = new Map();
+    for (const it of items) {
+      const qty = Number(it.qty ?? it.quantity ?? 0);
+      const unit = Number(it.unit_price ?? (Number(it.line_total || 0) / Math.max(qty, 1)) ?? 0);
+      const meta = {
+        customer_name: coalesce(it.customer_name, it.name, it.customerName),
+        customer_phone: coalesce(it.customer_phone, it.phone, it.phone_number, it.tel, it.contact),
+        description: coalesce(it.description, it.note, it.notes, it.comment, it.special_request),
+      };
+      const key = [it.food_id, unit, meta.customer_name, meta.customer_phone, meta.description].join("|");
+      if (!map.has(key)) {
+        map.set(key, {
+          food_id: it.food_id,
+          food_name: it.food_name,
+          unit_price: unit,
+          quantity: 0,
+          meta,
+        });
+      }
+      map.get(key).quantity += qty;
+    }
+    return Array.from(map.values());
+  }
+
+  const openBillSummary = async (bill) => {
+    if (!bill?.bill_id) return;
     try {
-      // secured admin route; use api.admin to send Authorization header
-      const query = status ? `?status=${encodeURIComponent(status)}` : "";
-      const data = await api.admin.get(`/billing${query}`);
-      setBills(Array.isArray(data?.list) ? data.list : []);
+      const data = await api.admin.get(`/billing/${bill.bill_id}/summary`);
+      const merged = mergeBillLines(data?.items || []);
+      const total = (data?.totals?.total != null)
+        ? Number(data.totals.total)
+        : merged.reduce((s, r) => s + r.unit_price * r.quantity, 0);
+      setSummaryBill({
+        bill_id: bill.bill_id,
+        bill_code: bill.bill_code || `Bill #${bill.bill_id}`,
+        table_label: bill.table_label || bill.table_id,
+      });
+      setSummaryItems(merged);
+      setSummaryTotal(total);
+      setSummaryOpen(true);
     } catch (e) {
-      console.error("loadBills error:", e);
-      setBills([]);
-      alert("Failed to load bills");
+      console.error("openBillSummary error:", e);
+      alert("Failed to load bill summary");
+    }
+  };
+
+  const loadCurrentBills = async () => {
+    setLoadingCurrent(true);
+    try {
+      const data = await api.admin.get(`/billing/current`);
+      const raw = Array.isArray(data?.list) ? data.list : [];
+      setCurrentBills(normalizeCurrentBills(raw));
+    } catch (e) {
+      console.error("loadCurrentBills error:", e);
+      setCurrentBills([]);
+      alert("Failed to load current bills");
     } finally {
-      setLoadingBills(false);
+      setLoadingCurrent(false);
+    }
+  };
+
+  const loadPastBills = async () => {
+    setLoadingPast(true);
+    try {
+      const data = await api.admin.get(`/billing?status=paid`);
+      setPastBills(Array.isArray(data?.list) ? data.list : []);
+    } catch (e) {
+      console.error("loadPastBills error:", e);
+      setPastBills([]);
+      alert("Failed to load past bills");
+    } finally {
+      setLoadingPast(false);
     }
   };
 
@@ -38,13 +154,13 @@ export default function AdminDashboard() {
     if (!confirm(`Confirm payment for Bill #${billId}?`)) return;
     try {
       // use admin endpoint defined in admin.billing.js
-      const res = await api.admin.post(`/billing/${billId}/confirm`, { method });
+      const res = await api.admin.post(`/billing/${billId}/mark-paid`, { method });
       // backend returns { ok: true, bill, ... } or similar on success
       if (res && res.ok === false) {
         throw new Error(res?.error || "Confirm payment failed");
       }
       alert("Bill confirmed as PAID ✅");
-      await loadBills(); // refresh
+      await Promise.all([loadCurrentBills(), loadPastBills()]);
     } catch (e) {
       console.error("onMarkBillPaid error:", e);
       alert(e?.message || "Failed to confirm payment");
@@ -148,7 +264,7 @@ export default function AdminDashboard() {
     if (tab === "menu") loadMenu();
     if (tab === "activity") loadActivity();
     if (tab === "orders") loadOrders();
-    if (tab === "bills") loadBills();
+    if (tab === "bills") { loadCurrentBills(); loadPastBills(); }
   }, [tab]);
 
   // ---- helpers ----
@@ -284,95 +400,119 @@ export default function AdminDashboard() {
       </div>
       {/* Tab: Bills (Admin Billing) */}
       {tab === "bills" && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
+        <div className="space-y-8">
+          {/* Header */}
+          <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold">Bills</h2>
             <div className="flex gap-2">
               <button
                 className="px-3 py-1 border rounded hover:bg-white/10"
-                onClick={() => loadBills()}
-                title="Show all statuses"
-              >
-                All
-              </button>
-              <button
-                className="px-3 py-1 border rounded hover:bg-white/10"
-                onClick={() => loadBills("pending_payment")}
-              >
-                Pending Payment
-              </button>
-              <button
-                className="px-3 py-1 border rounded hover:bg-white/10"
-                onClick={() => loadBills("paid")}
-              >
-                Paid
-              </button>
-              <button
-                className="px-3 py-1 border rounded hover:bg-white/10"
-                onClick={() => loadBills()}
+                onClick={() => { loadCurrentBills(); loadPastBills(); }}
+                title="Refresh"
               >
                 Refresh
               </button>
             </div>
           </div>
 
-          {loadingBills && <div className="opacity-70">Loading bills...</div>}
-          {!loadingBills && bills.length === 0 && (
-            <div className="opacity-70">No bills found.</div>
-          )}
+          {/* Current Bills (one per table, status = pending_payment) */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Current Bills (per table)</h3>
+              {loadingCurrent && <span className="text-sm opacity-70">Loading…</span>}
+            </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {bills.map((b) => (
-              <div key={b.bill_id} className="border border-white/10 rounded p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <div className="font-semibold">{b.bill_code || `Bill #${b.bill_id}`}</div>
-                    <div className="text-sm opacity-70">
-                      Table {b.table_label || b.table_id} • ฿{Number(b.total_amount || 0).toFixed(2)}
+            {!loadingCurrent && currentBills.length === 0 && (
+              <div className="opacity-70">No current bills.</div>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {currentBills.map((b) => {
+                const isPlaceholder = !b?.bill_id;
+                return (
+                  <div key={`${b.table_id ?? b.table_label}-${b.bill_id ?? "placeholder"}`} className="border border-white/10 rounded p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="font-semibold">
+                          {isPlaceholder
+                            ? `Bill — waiting (Table ${b.table_label || b.table_id})`
+                            : (b.bill_code || `Bill #${b.bill_id}`)}
+                        </div>
+                        <div className="text-sm opacity-70">
+                          Table {b.table_label || b.table_id} • ฿{Number(b.total_amount || 0).toFixed(2)}
+                        </div>
+                        <div className="text-xs opacity-50">
+                          Updated: {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                        </div>
+                      </div>
+                      <span className="text-xs px-2 py-1 border rounded">
+                        {isPlaceholder ? "EMPTY" : String(b.status || "").toUpperCase()}
+                      </span>
                     </div>
-                    <div className="text-xs opacity-50">
-                      Updated: {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                    <div className="flex gap-2">
+                    <button
+                      className="px-2 py-1 text-sm border rounded hover:bg-white/10 disabled:opacity-60"
+                      disabled={isPlaceholder}
+                      onClick={() => openBillSummary(b)}
+                    >
+                      View Summary
+                    </button>
+                      {!isPlaceholder && String(b.status) === "pending_payment" && (
+                        <button
+                          className="px-2 py-1 text-sm border rounded hover:bg-white/10"
+                          onClick={() => onMarkBillPaid(b.bill_id, "cash")}
+                        >
+                          Mark Paid
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <span className="text-xs px-2 py-1 border rounded">
-                    {String(b.status || "").toUpperCase()}
-                  </span>
-                </div>
+                );
+              })}
+            </div>
+          </section>
 
-                <div className="flex gap-2">
-                  <button
-                    className="px-2 py-1 text-sm border rounded hover:bg-white/10"
-                    onClick={async () => {
-                      try {
-                        const data = await api.admin.get(`/billing/${b.bill_id}/summary`);
-                        const lines = (data?.items || []).map(
-                          (it) => `${it.food_name} × ${it.qty} — ฿${Number(it.line_total || 0).toFixed(2)}`
-                        );
-                        alert(
-                          `${b.bill_code || `Bill #${b.bill_id}`}\n` +
-                          `Total: ฿${Number(data?.totals?.total || b.total_amount || 0).toFixed(2)}\n\n` +
-                          (lines.join("\n") || "(no items)")
-                        );
-                      } catch (e) {
-                        alert("Failed to load bill summary");
-                      }
-                    }}
-                  >
-                    View Summary
-                  </button>
+          {/* Past Bills (paid history) */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Past Bills</h3>
+              {loadingPast && <span className="text-sm opacity-70">Loading…</span>}
+            </div>
 
-                  {String(b.status) === "pending_payment" && (
+            {!loadingPast && pastBills.length === 0 && (
+              <div className="opacity-70">No past bills.</div>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {pastBills.map((b) => (
+                <div key={b.bill_id} className="border border-white/10 rounded p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <div className="font-semibold">{b.bill_code || `Bill #${b.bill_id}`}</div>
+                      <div className="text-sm opacity-70">
+                        Table {b.table_label || b.table_id} • ฿{Number(b.total_amount || 0).toFixed(2)}
+                      </div>
+                      <div className="text-xs opacity-50">
+                        Updated: {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                      </div>
+                    </div>
+                    <span className="text-xs px-2 py-1 border rounded">
+                      {String(b.status || "").toUpperCase()}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
                     <button
                       className="px-2 py-1 text-sm border rounded hover:bg-white/10"
-                      onClick={() => onMarkBillPaid(b.bill_id, "cash")}
+                      onClick={() => openBillSummary(b)}
                     >
-                      Mark Paid
+                      View Summary
                     </button>
-                  )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </section>
         </div>
       )}
       {/* Tab: Orders (Admin Management) */}
@@ -597,6 +737,67 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+    {/* Bill Summary Modal */}
+    {summaryOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/40" onClick={() => setSummaryOpen(false)} />
+        <div className="relative z-10 w-[90%] max-w-2xl bg-white rounded-2xl p-6 text-slate-900 shadow-xl">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h3 className="text-lg font-bold">{summaryBill?.bill_code}</h3>
+              <p className="text-xs text-slate-600">Table {summaryBill?.table_label}</p>
+            </div>
+            <button
+              onClick={() => setSummaryOpen(false)}
+              className="px-3 py-1 border border-slate-300 rounded-full hover:bg-slate-50 text-sm"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="text-sm font-semibold text-slate-500 mb-2">
+            Order summary (merged)
+            <span className="block text-xs font-normal">
+              Same items from multiple orders are combined.
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {summaryItems.map((r, idx) => (
+              <div key={`${r.food_id}-${idx}`} className="flex justify-between items-start bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                <div className="flex-1 min-w-0 pr-3">
+                  <div className="font-medium text-slate-900">
+                    {r.food_name}{" "}
+                    <span className="text-xs text-slate-500">×{r.quantity}</span>
+                  </div>
+                  {(r.meta.customer_name || r.meta.customer_phone || r.meta.description) && (
+                    <div className="text-xs text-slate-500 mt-1 break-words">
+                      {r.meta.customer_name && <span>Name: {r.meta.customer_name}</span>}
+                      {r.meta.customer_name && r.meta.customer_phone && <span> · </span>}
+                      {r.meta.customer_phone && <span>Phone: {r.meta.customer_phone}</span>}
+                      {r.meta.description && (
+                        <div className="mt-1 whitespace-pre-wrap">{r.meta.description}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right font-medium ml-2">
+                  ฿{(r.unit_price * r.quantity).toFixed(2)}
+                  <div className="text-xs text-slate-500">
+                    ({r.unit_price.toFixed(2)} each)
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between text-lg font-bold">
+            <span>Total</span>
+            <span>฿{summaryTotal.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
