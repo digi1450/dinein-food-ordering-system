@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
+import safeLogActivity from "../utils/safeLogActivity.js";
 
 const router = Router();
 
@@ -16,10 +17,12 @@ router.post("/", requireAdmin, async (req, res) => {
     [category_id, food_name, price, description, req.user.user_id, req.user.user_id]
   );
 
-  await pool.query(
-    `INSERT INTO admin_activity (user_id, entity_type, entity_id, action, details)
-     VALUES (?, 'food', ?, 'create', JSON_OBJECT('food_name', ?, 'price', ?))`,
-    [req.user.user_id, r.insertId, food_name, price]
+  await safeLogActivity(
+    req.user.user_id,
+    "food",
+    r.insertId,
+    "create",
+    { food_name, price }
   );
 
   res.status(201).json({ food_id: r.insertId });

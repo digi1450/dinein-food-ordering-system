@@ -136,6 +136,35 @@ async function publish(orderId) {
 }
 
 /* ---------------------------------------------
+   GET /api/orders/stream-all  → SSE for admin feed
+   (ต้องมาก่อน /:id)
+---------------------------------------------- */
+router.get("/stream-all", async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  allowDevOrigin(res, req);
+
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  // initial feed
+  try {
+    const feed = await getRecentOrders();
+    res.write(`data: ${JSON.stringify(feed)}\n\n`);
+  } catch (e) {}
+
+  // subscribe
+  subscribeAdminFeed(res);
+  // heartbeat กันหลุด
+  const interval = setInterval(() => {
+    res.write(":keep-alive\n\n");
+  }, 15000);
+  res.on("close", () => {
+    clearInterval(interval);
+  });
+});
+
+/* ---------------------------------------------
    GET /api/orders/:id   → flatten response
 ---------------------------------------------- */
 router.get("/:id", async (req, res) => {
@@ -178,7 +207,7 @@ router.get("/:id/stream", async (req, res) => {
   // subscribe
   subscribeOrder(orderId, res);
 
-   // ส่ง heartbeat ทุก 15 วิ เพื่อกัน timeout
+  // ส่ง heartbeat ทุก 15 วิ เพื่อกัน timeout
   const interval = setInterval(() => {
     res.write(":keep-alive\n\n");
   }, 15000);
@@ -247,34 +276,6 @@ router.get("/", async (req, res) => {
     console.error("GET /api/orders error:", err);
     return res.status(500).json({ message: "Server error" });
   }
-});
-
-/* ---------------------------------------------
-   GET /api/orders/stream-all  → SSE for admin feed
----------------------------------------------- */
-router.get("/stream-all", async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  allowDevOrigin(res, req);
-
-  if (typeof res.flushHeaders === "function") res.flushHeaders();
-
-  // initial feed
-  try {
-    const feed = await getRecentOrders();
-    res.write(`data: ${JSON.stringify(feed)}\n\n`);
-  } catch (e) {}
-
-  // subscribe
-  subscribeAdminFeed(res);
-  // heartbeat กันหลุด
-  const interval = setInterval(() => {
-    res.write(":keep-alive\n\n");
-  }, 15000);
-  res.on("close", () => {
-    clearInterval(interval);
-  });
 });
 
 /* ---------------------------------------------

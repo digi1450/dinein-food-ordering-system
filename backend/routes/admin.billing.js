@@ -2,6 +2,7 @@
 import { Router } from "express";
 import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
+import safeLogActivity from "../utils/safeLogActivity.js";
 
 const router = Router();
 
@@ -15,12 +16,24 @@ router.get("/", requireAdmin, async (req, res) => {
   const q = (req.query.q || "").trim();
   const limit = Number(req.query.limit) > 0 ? Number(req.query.limit) : 50;
 
-  const where = [];
+  // base filter: only show pending_payment or paid bills
+  const where = ["b.status IN ('pending_payment','paid')"]; 
   const params = [];
-  if (status) { where.push("b.status = ?"); params.push(status); }
-  if (tableId) { where.push("b.table_id = ?"); params.push(tableId); }
-  if (q) { where.push("b.bill_code LIKE ?"); params.push(`%${q}%`); }
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  if (status) {
+    where.push("b.status = ?");
+    params.push(status);
+  }
+  if (tableId) {
+    where.push("b.table_id = ?");
+    params.push(tableId);
+  }
+  if (q) {
+    where.push("b.bill_code LIKE ?");
+    params.push(`%${q}%`);
+  }
+
+  const whereSql = "WHERE " + where.join(" AND ");
 
   const sql = `
     SELECT
@@ -44,8 +57,7 @@ router.get("/", requireAdmin, async (req, res) => {
     LEFT JOIN bill_order  bo ON bo.bill_id = b.bill_id
     LEFT JOIN orders      o  ON o.order_id = bo.order_id
     LEFT JOIN order_item  oi ON oi.order_id = bo.order_id
-    WHERE b.status IN ('pending_payment','paid')
-    ${whereSql ? `AND ${whereSql.replace(/^WHERE\s+/,'')}` : ''}
+    ${whereSql}
     GROUP BY b.bill_id, b.bill_code, b.table_id, b.status, b.subtotal, b.discount, b.total_amount, b.updated_at, t.table_label
     HAVING (items_count > 0 OR computed_total > 0 OR b.total_amount > 0)
     ORDER BY b.updated_at DESC, b.bill_id DESC
@@ -242,6 +254,21 @@ async function confirmPaidHandler(req, res) {
 
     // best-effort: make sure table is free for the next session
     await conn.query(`UPDATE table_info SET status = 'available' WHERE table_id = ?`, [bill.table_id]);
+
+    // log admin activity (best-effort)
+    await safeLogActivity(
+      (req.user && req.user.user_id) || (req.admin && req.admin.user_id) || null,
+      "bill",
+      billId,
+      "status_change",
+      {
+        action: "mark_paid",
+        method,
+        amount: bill.total_amount,
+        table_id: bill.table_id,
+        payment_id: p.insertId
+      }
+    );
 
     await conn.commit();
     return res.json({ ok: true, payment_id: p.insertId });

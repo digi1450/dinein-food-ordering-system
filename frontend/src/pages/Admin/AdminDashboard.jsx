@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import API_BASE from "../../lib/apiBase";
+import AdminActivityPage from "./AdminActivityPage";
 
 // Prefer a real bill (has bill_id) over a placeholder row for the same table.
 function normalizeCurrentBills(list) {
@@ -54,7 +55,6 @@ export default function AdminDashboard() {
   // data states
   const [orders, setOrders] = useState([]);
   const [menu, setMenu] = useState([]);
-  const [activity, setActivity] = useState([]);
   // ---- Bills (Admin Billing) ----
   const [currentBills, setCurrentBills] = useState([]); // one (latest) pending_payment per table
   const [pastBills, setPastBills] = useState([]);       // paid bills (history)
@@ -247,24 +247,14 @@ export default function AdminDashboard() {
     }
   };
 
-  // ---- load recent admin activity (ต้องแนบ token) ----
-  const loadActivity = async () => {
-    try {
-      // ใช้ api.admin เช่นกัน
-      const data = await api.admin.get("/logs/activity");
-      setActivity(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error("loadActivity error:", e);
-      setActivity([]);
-    }
-  };
-
   // lazy-load per tab
   useEffect(() => {
     if (tab === "menu") loadMenu();
-    if (tab === "activity") loadActivity();
     if (tab === "orders") loadOrders();
-    if (tab === "bills") { loadCurrentBills(); loadPastBills(); }
+    if (tab === "bills") {
+      loadCurrentBills();
+      loadPastBills();
+    }
   }, [tab]);
 
   // ---- helpers ----
@@ -698,30 +688,7 @@ export default function AdminDashboard() {
 
       {/* Tab: Activity (admin logs) */}
       {tab === "activity" && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-bold">Recent Activity</h2>
-            <button className="px-3 py-1 border rounded hover:bg-white/10" onClick={loadActivity}>Refresh</button>
-          </div>
-          <div className="space-y-2">
-            {activity.map((a) => (
-              <div key={a.activity_id} className="border border-white/10 rounded p-3">
-                <div className="font-semibold">{a.entity_type} #{a.entity_id} — {a.action}</div>
-                <div className="text-sm opacity-70">
-                  by {a.username || a.user_id} at {new Date(a.created_at).toLocaleString()}
-                </div>
-                {a.details && (
-                  <pre className="text-xs opacity-80 mt-1 overflow-auto">
-                    {JSON.stringify(a.details, null, 2)}
-                  </pre>
-                )}
-              </div>
-            ))}
-            {!activity.length && (
-              <div className="opacity-70">No activity yet.</div>
-            )}
-          </div>
-        </div>
+        <AdminActivityPage/>
       )}
     {/* Bill Summary Modal */}
     {summaryOpen && (

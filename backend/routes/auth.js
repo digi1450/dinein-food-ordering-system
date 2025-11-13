@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../config/db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import safeLogActivity from "../utils/safeLogActivity.js";
 
 const router = Router();
 
@@ -28,6 +29,13 @@ router.post("/login", async (req, res) => {
     { user_id: u.user_id, username: u.username, role: u.role },
     process.env.JWT_SECRET,
     { expiresIn: "12h" }
+  );
+  await safeLogActivity(
+    u.user_id,
+    "login",
+    u.user_id,
+    "login",
+    { username: u.username }
   );
   res.json({ token });
 });
