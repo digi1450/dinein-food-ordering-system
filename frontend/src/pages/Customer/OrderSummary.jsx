@@ -211,49 +211,61 @@ export default function OrderSummary() {
     if (savedIdByTable) { setCurrentId(savedIdByTable); return; }
     if (savedId)  { setCurrentId(savedId);  return; }
 
-    // priority 4: latest order of explicit ?table=
-    if (tableIdClean) {
-      (async () => {
-        try {
-          setLoading(true);
-          const list = await api.get(`/orders?table_id=${tableIdClean}`);
-          const latest = list?.[0]; // API orders by created_at DESC
-          if (latest?.order_id) {
-            setCurrentId(cleanId(latest.order_id));
-          } else {
-            setData(null);
-          }
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setLoading(false);
-        }
-      })();
-      return;
-    }
+  // priority 4: latest *active* order of explicit ?table=
+  if (tableIdClean) {
+    (async () => {
+      try {
+        setLoading(true);
+        const list = await api.get(`/orders?table_id=${tableIdClean}`);
 
-    // priority 5: latest order of saved table id
-    if (!tableIdClean && savedTableIdClean) {
-      (async () => {
-        try {
-          setLoading(true);
-          const r = await fetch(`${API_BASE}/orders?table_id=${savedTableIdClean}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const list = await r.json();
-          const latest = list?.[0];
-          if (latest?.order_id) {
-            setCurrentId(cleanId(latest.order_id));
-          } else {
-            setData(null);
-          }
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setLoading(false);
+        // เลือกเฉพาะออเดอร์ที่ยัง active (ไม่เอา completed / cancelled มาเป็น current)
+        const latestActive = Array.isArray(list)
+          ? list.find(o => isActiveStatus(o.status))
+          : null;
+
+        if (latestActive && latestActive.order_id) {
+          setCurrentId(cleanId(latestActive.order_id));
+        } else {
+          // ไม่มี active order เลย → ถือว่าโต๊ะเริ่ม session ใหม่
+          setCurrentId(null);
+          setData(null);
         }
-      })();
-      return;
-    }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return;
+  }
+
+  // priority 5: latest *active* order of saved table id
+  if (!tableIdClean && savedTableIdClean) {
+    (async () => {
+      try {
+        setLoading(true);
+        const r = await fetch(`${API_BASE}/orders?table_id=${savedTableIdClean}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const list = (await r.json()) || [];
+
+        const latestActive = Array.isArray(list)
+          ? list.find(o => isActiveStatus(o.status))
+          : null;
+
+        if (latestActive && latestActive.order_id) {
+          setCurrentId(cleanId(latestActive.order_id));
+        } else {
+          setCurrentId(null);
+          setData(null);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return;
+  }
 
     // if nothing matches, stop loading spinner
     setLoading(false);
@@ -316,50 +328,55 @@ export default function OrderSummary() {
     })();
   }, [currentId]);
 
-// Helper to compute past orders for the current sitting (session-bounded, robust to timestamps)
+// Helper to compute past orders for the current sitting (session)
+// - แสดงทุกสถานะ (รวม cancelled) ยกเว้น completed/paid
+// - จำกัดให้เฉพาะออเดอร์ใน "session ปัจจุบัน" เท่านั้น
 const computePastOrders = (list, currentId) => {
   const curStatus = String(data?.status || "").toLowerCase();
-  if (curStatus === "completed" || curStatus === "paid") return [];
+
+  // ถ้าไม่มี currentId หรือ current order ถูก checkout แล้ว → ไม่โชว์ประวัติ
+  if (!currentId || curStatus === "completed" || curStatus === "paid") return [];
+
   const arr = Array.isArray(list) ? list.slice() : [];
+  if (!arr.length) return [];
 
-  // Identify the most recent completed order as the session boundary
-  const lastCompleted = arr.find(
-    (o) => String(o?.status || "").toLowerCase() === "completed"
-  );
+  const currentNumericId = Number(currentId);
+  if (!Number.isFinite(currentNumericId)) return [];
 
-  const toTime = (o) => {
-    const t = Date.parse(o?.created_at);
-    return Number.isFinite(t) ? t : null;
-  };
+  // หา active orders ทั้งหมดของโต๊ะ (สถานะที่ยังไม่ใช่ completed / cancelled)
+  const activeOrders = arr.filter((o) => isActiveStatus(o.status));
 
-  const boundaryTs = lastCompleted ? toTime(lastCompleted) : null;
-  const boundaryId = lastCompleted ? Number(lastCompleted.order_id) : null;
+  // sessionMinId = order_id ที่เล็กที่สุดในบรรดา active orders ของโต๊ะนี้
+  // ถ้าไม่มี active order อื่น ก็ใช้ currentId เองเป็นจุดเริ่มต้นของ session
+  let sessionMinId = currentNumericId;
+  if (activeOrders.length > 0) {
+    const activeIds = activeOrders
+      .map((o) => Number(o.order_id))
+      .filter((n) => Number.isFinite(n));
+    if (activeIds.length > 0) {
+      sessionMinId = Math.min(...activeIds);
+    }
+  }
 
-  const keep = [];
-  for (const o of arr) {
-    if (Number(o.order_id) === Number(currentId)) continue;
+  return arr.filter((o) => {
+    const oid = Number(o.order_id);
+    if (!Number.isFinite(oid)) return false;
+
+    // ตัดทุกออเดอร์ที่ "เก่ากว่า session ปัจจุบัน" ทิ้ง
+    // → ลูกค้าใหม่จะไม่เห็นออเดอร์ของลูกค้าคนก่อน
+    if (oid < sessionMinId) return false;
+
+    // ไม่แสดง current order ซ้ำใน Past orders
+    if (oid === currentNumericId) return false;
 
     const st = String(o.status || "").toLowerCase();
 
-    // ❌ ไม่ให้ cancelled โผล่ใน Past orders เลย
-    if (st === "cancelled" || st === "canceled") continue;
+    // Past orders ไม่ต้องโชว์ completed/paid
+    if (st === "completed" || st === "paid") return false;
 
-    // เดิม: ไม่แสดง completed ใน Past orders
-    if (st === "completed") continue;
-
-    // ถ้ามี boundary (completed ล่าสุด) → เก็บเฉพาะออเดอร์ที่ "ใหม่กว่า" boundary
-    if (lastCompleted) {
-      const ot = toTime(o);
-      if (boundaryTs != null && ot != null) {
-        if (ot <= boundaryTs) continue;
-      } else if (boundaryId != null) {
-        if (Number(o.order_id) <= boundaryId) continue;
-      }
-    }
-
-    keep.push(o);
-  }
-  return keep;
+    // ที่เหลือ (รวม cancelled ใน session นี้) ให้โชว์ทั้งหมด
+    return true;
+  });
 };
 
   // 2.5) Load recent orders by table (exclude current)
@@ -440,12 +457,6 @@ const computePastOrders = (list, currentId) => {
     };
   }, [currentId]);
 
-  useEffect(() => {
-  const s = String(data?.status || "").toLowerCase();
-  if (s === "completed" || s === "paid") {
-    setRecent([]);
-  }
-}, [data?.status]);
   // Auto-promote the next active order for this table when current order becomes inactive or empty
   useEffect(() => {
     const inactive = !data || !isActiveStatus(data.status) || (Array.isArray(data.items) && data.items.length === 0);
@@ -502,7 +513,7 @@ const computePastOrders = (list, currentId) => {
 
   // --- safe mappings based on current response shape ---
   const orderNo  = data?.order_id ?? currentId ?? "—";
-  const tableNo  = data?.table_label ?? data?.table_id ?? "—";
+  const tableNo  = data?.table_label ?? data?.table_id ?? tableIdResolved ?? "—";
 
   const statusRaw = data?.status ?? data?.order?.status ?? "unknown";
   const statusText = String(statusRaw).toUpperCase();
@@ -547,8 +558,21 @@ const computePastOrders = (list, currentId) => {
         {loading ? (
           <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">Loading...</div>
         ) : !data ? (
-          <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">
-            No active orders for table {tableIdParam || tableIdResolved || "—"} — Please create a new order from the menu.
+          <div className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto text-center">
+            <h2 className="text-xl font-semibold text-slate-900">
+              No active orders for this table
+            </h2>
+            <p className="text-slate-500 mt-2">
+              Table {tableIdParam || tableIdResolved || "—"} has no active orders yet. Please start a new order from the menu.
+            </p>
+            <div className="mt-7 flex justify-center">
+              <Link
+                to={`/home?table=${tableIdResolved ?? tableIdParam ?? ""}`}
+                className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-black/5 hover:bg-slate-200 transition"
+              >
+                Back to Menu
+              </Link>
+            </div>
           </div>
         ) : (
           <>

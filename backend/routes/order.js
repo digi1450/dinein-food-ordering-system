@@ -228,34 +228,58 @@ router.get("/", async (req, res) => {
     const where = [];
     const args = [];
 
-    // Read include_closed param
+    // include_closed = 1,true → เอาทุกสถานะใน "รอบปัจจุบัน"
     const include_closed = String(req.query?.include_closed || "").toLowerCase();
     const wantClosed = include_closed === "1" || include_closed === "true";
 
+    let lastCompletedAt = null;
+
+    // ถ้ามี table_id → หาว่า "โต๊ะนี้ checkout ครั้งล่าสุดเมื่อไหร่"
+    if (table_id) {
+      const tableIdNum = Number(table_id);
+      if (Number.isFinite(tableIdNum) && tableIdNum > 0) {
+        // filter ตามโต๊ะก่อน
+        where.push("o.table_id = ?");
+        args.push(tableIdNum);
+
+        // ดู log ว่าออเดอร์ไหนของโต๊ะนี้เคยถูกเปลี่ยนเป็น completed ล่าสุดเมื่อไหร่
+        const [boundaryRows] = await pool.query(
+          `
+          SELECT MAX(l.created_at) AS last_completed_at
+          FROM orders o
+          JOIN order_status_log l ON l.order_id = o.order_id
+          WHERE o.table_id = ? AND l.to_status = 'completed'
+          `,
+          [tableIdNum]
+        );
+        if (boundaryRows && boundaryRows[0] && boundaryRows[0].last_completed_at) {
+          lastCompletedAt = boundaryRows[0].last_completed_at;
+        }
+      }
+    }
+
+    // filter ตาม status ถ้าระบุมาแบบตรง ๆ
     if (status) {
       where.push("o.status = ?");
       args.push(status);
     }
-    if (table_id) {
-      where.push("o.table_id = ?");
-      args.push(Number(table_id));
+
+    // จำกัดให้เห็นเฉพาะ "ออเดอร์ในรอบปัจจุบันของโต๊ะนี้"
+    // คือออเดอร์ที่ถูกสร้างหลังจากที่มีการ checkout (completed) ครั้งล่าสุด
+    if (lastCompletedAt) {
+      where.push("o.created_at > ?");
+      args.push(lastCompletedAt);
     }
 
-    if (!wantClosed) {
-      // ค่าเริ่มต้น: แสดงเฉพาะออเดอร์ที่ยังดำเนินอยู่ + ออเดอร์ล่าสุดของโต๊ะ (แม้จะปิดแล้ว)
-      where.push(`(
-        o.status NOT IN ('completed','cancelled')
-        OR o.order_id = (
-          SELECT MAX(o2.order_id)
-          FROM orders o2
-          WHERE o2.table_id = o.table_id
-        )
-      )`);
+    // ถ้าไม่ได้ขอ include_closed → ไม่เอา completed / cancelled (ถือว่าอันนี้คือหน้าลูกค้าใช้เช็คว่า
+    // ยังมีออเดอร์ค้างอยู่ไหม)
+    if (!wantClosed && !status) {
+      where.push("o.status NOT IN ('completed','cancelled')");
     }
-    // ถ้า wantClosed === true จะไม่ใส่เงื่อนไขตัด completed/cancelled ออก → ดึงทุกสถานะสำหรับโต๊ะนั้น
 
     // กรองออเดอร์ที่มียอด (total_amount) เท่านั้น
     where.push("o.total_amount IS NOT NULL");
+
     const sql = `
       SELECT 
         o.order_id,
