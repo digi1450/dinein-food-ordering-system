@@ -183,7 +183,7 @@ export default function CheckoutSummary() {
       const billId = startData.billId || startData.bill_id || startData.bill?.bill_id;
       if (!billId) throw new Error("No bill_id returned");
 
-      // 2) Confirm checkout → lock totals, mark orders completed, set bill.status = 'pending_payment'
+            // 2) Confirm checkout → lock totals, mark orders completed, set bill.status = 'pending_payment'
       const confirmRes = await fetch(`${API_BASE}/billing/checkout/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -192,6 +192,32 @@ export default function CheckoutSummary() {
       if (!confirmRes.ok) {
         const data = await confirmRes.json().catch(() => ({}));
         throw new Error(data?.error || data?.message || "Failed to confirm checkout");
+      }
+
+      // 2.5) หลัง checkout สำเร็จ → จำว่า "session นี้จบที่ order_id เท่าไหร่"
+      try {
+        const numericTableId = orders[0]?.table_id;
+        const t = Number(numericTableId);
+        if (Number.isFinite(t) && t > 0) {
+          const ordersRes = await fetch(
+            `${API_BASE}/orders?table_id=${t}&include_closed=1`
+          );
+          if (ordersRes.ok) {
+            const list = (await ordersRes.json()) || [];
+            const maxId = list
+              .map((o) => Number(o.order_id))
+              .filter((n) => Number.isFinite(n))
+              .reduce((max, n) => (n > max ? n : max), 0);
+            if (maxId > 0) {
+              localStorage.setItem(
+                `session_boundary_order_id_${t}`,
+                String(maxId)
+              );
+            }
+          }
+        }
+      } catch (_) {
+        // ถ้าเซฟ boundary ไม่ได้ก็ไม่เป็นไร ไม่กระทบการ checkout
       }
 
       // 3) Clear local cart for this table and navigate to success

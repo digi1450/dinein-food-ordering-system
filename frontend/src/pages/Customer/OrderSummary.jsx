@@ -63,6 +63,9 @@ const isActiveStatus = (s = "") => {
 
 export default function OrderSummary() {
   const esRef = useRef(null);                    // เก็บ EventSource ไว้ปิดตอน unmount
+  const sessionMinActiveRef = useRef(null);      // เก็บ order_id ที่เคย active ต่ำสุดใน session นี้
+  const lastBoundaryRef = useRef(null);          // เก็บ boundary เดิมไว้เช็คว่า session เปลี่ยนหรือยัง
+  const [sessionBoundaryId, setSessionBoundaryId] = useState(null);  // boundary ที่อ่านมาจาก localStorage
   const { orderId } = useParams();
   const [params] = useSearchParams(); // เผื่อในอนาคตใช้ code=? ตรวจสิทธิ์
   const [data, setData] = useState(null);
@@ -188,6 +191,25 @@ export default function OrderSummary() {
     const fromSaved = cleanId(savedTableId);
     return fromData ?? fromQuery ?? fromSaved ?? null;
   }, [data?.table_id, tableIdParam, savedTableId]);
+
+  // Load per-table session boundary (last order_id at the end of the previous checkout session)
+useEffect(() => {
+  const t = cleanId(tableIdResolved);
+  if (!t) {
+    setSessionBoundaryId(null);
+    return;
+  }
+  try {
+    const raw = Number(localStorage.getItem(`session_boundary_order_id_${t}`));
+    if (Number.isFinite(raw) && raw > 0) {
+      setSessionBoundaryId(raw);
+    } else {
+      setSessionBoundaryId(null);
+    }
+  } catch {
+    setSessionBoundaryId(null);
+  }
+}, [tableIdResolved]);
 
   const savedOrderIdForResolvedTable = useMemo(() => {
     const t = cleanId(tableIdResolved);
@@ -331,6 +353,7 @@ export default function OrderSummary() {
 // Helper to compute past orders for the current sitting (session)
 // - แสดงทุกสถานะ (รวม cancelled) ยกเว้น completed/paid
 // - จำกัดให้เฉพาะออเดอร์ใน "session ปัจจุบัน" เท่านั้น
+// - เพิ่มพิเศษ: ถ้าเป็นออเดอร์ที่ถูกยกเลิก (cancelled) จะไม่โดนตัดทิ้งด้วยเงื่อนไข sessionMinId
 const computePastOrders = (list, currentId) => {
   const curStatus = String(data?.status || "").toLowerCase();
 
@@ -343,38 +366,70 @@ const computePastOrders = (list, currentId) => {
   const currentNumericId = Number(currentId);
   if (!Number.isFinite(currentNumericId)) return [];
 
+  // อ่าน boundary (order_id สูงสุดของทุก session เก่าที่ checkout ไปแล้ว) จาก state
+  const boundary = Number(sessionBoundaryId);
+  const hasBoundary = Number.isFinite(boundary) && boundary > 0;
+
+  // ถ้า boundary เปลี่ยน แสดงว่าเริ่ม session ใหม่ → reset ref ที่เก็บ sessionMinActive
+  if (hasBoundary && lastBoundaryRef.current !== boundary) {
+    lastBoundaryRef.current = boundary;
+    sessionMinActiveRef.current = null;
+  }
+
   // หา active orders ทั้งหมดของโต๊ะ (สถานะที่ยังไม่ใช่ completed / cancelled)
   const activeOrders = arr.filter((o) => isActiveStatus(o.status));
 
-  // sessionMinId = order_id ที่เล็กที่สุดในบรรดา active orders ของโต๊ะนี้
-  // ถ้าไม่มี active order อื่น ก็ใช้ currentId เองเป็นจุดเริ่มต้นของ session
-  let sessionMinId = currentNumericId;
+  // candidateMin = order_id ที่เล็กที่สุดของ active order ใน session ปัจจุบัน (และต้องใหม่กว่า boundary ถ้ามี)
+  let candidateMin = currentNumericId;
+
   if (activeOrders.length > 0) {
-    const activeIds = activeOrders
+    let activeIds = activeOrders
       .map((o) => Number(o.order_id))
       .filter((n) => Number.isFinite(n));
+
+    if (hasBoundary) {
+      activeIds = activeIds.filter((n) => n > boundary);
+    }
+
     if (activeIds.length > 0) {
-      sessionMinId = Math.min(...activeIds);
+      candidateMin = Math.min(...activeIds);
+    } else if (hasBoundary) {
+      // ถ้า active ทุกตัวอยู่ก่อนหรือเท่ากับ boundary (เคสแปลก) ให้เริ่มหลัง boundary ไปเลย
+      candidateMin = boundary + 1;
     }
   }
+
+  // sessionMinActiveRef จะเก็บ "order_id ที่เล็กที่สุดที่เคย active ใน session นี้"
+  // เพื่อไม่ให้พอเรายกเลิกออเดอร์เก่าแล้วมันหายไปจาก Past orders
+  if (sessionMinActiveRef.current == null) {
+    sessionMinActiveRef.current = candidateMin;
+  } else {
+    sessionMinActiveRef.current = Math.min(sessionMinActiveRef.current, candidateMin);
+  }
+
+  const sessionMinId = sessionMinActiveRef.current ?? candidateMin;
 
   return arr.filter((o) => {
     const oid = Number(o.order_id);
     if (!Number.isFinite(oid)) return false;
 
-    // ตัดทุกออเดอร์ที่ "เก่ากว่า session ปัจจุบัน" ทิ้ง
-    // → ลูกค้าใหม่จะไม่เห็นออเดอร์ของลูกค้าคนก่อน
-    if (oid < sessionMinId) return false;
-
-    // ไม่แสดง current order ซ้ำใน Past orders
-    if (oid === currentNumericId) return false;
-
     const st = String(o.status || "").toLowerCase();
 
-    // Past orders ไม่ต้องโชว์ completed/paid
+    // 1) กันไม่ให้ session เก่ามาปนใน session ใหม่:
+    //    ตัดทุกออเดอร์ที่ order_id ≤ boundary ทิ้ง (ถ้า boundary มีค่า)
+    if (hasBoundary && oid <= boundary) return false;
+
+    // 2) เงื่อนไข sessionMinId ใช้กับออเดอร์ที่ยังไม่ถูกยกเลิกเท่านั้น
+    //    → ถ้าเป็น cancelled/canceled ให้ผ่านได้ถ้าใหม่กว่า boundary
+    if (st !== "cancelled" && st !== "canceled" && oid < sessionMinId) return false;
+
+    // 3) ไม่แสดง current order ซ้ำใน Past orders
+    if (oid === currentNumericId) return false;
+
+    // 4) Past orders ไม่ต้องโชว์ completed/paid
     if (st === "completed" || st === "paid") return false;
 
-    // ที่เหลือ (รวม cancelled ใน session นี้) ให้โชว์ทั้งหมด
+    // ที่เหลือทั้งหมด (pending / preparing / served / cancelled ใน session ปัจจุบัน) ให้โชว์
     return true;
   });
 };
