@@ -17,23 +17,6 @@ const ORDER_FLOWS = {
   cancelled: [],
 };
 
-// Allowed item-level transitions for admin
-const ITEM_FLOWS = {
-  pending: ["preparing", "cancelled"],
-  preparing: ["served", "cancelled"],
-  served: ["cancelled"],
-  completed: [],
-  cancelled: [],
-};
-
-// Helper: allowed item statuses
-const ALLOWED_ITEM_STATUS = new Set([
-  "pending",
-  "preparing",
-  "served",
-  "completed",
-  "cancelled",
-]);
 
 /**
  * GET /api/admin/orders
@@ -123,63 +106,100 @@ router.get("/", async (req, res) => {
 
 /**
  * PATCH /api/admin/orders/items/:orderItemId
- * Body: { status: 'pending|preparing|served|completed|cancelled', note? }
+ * ใช้สำหรับ "ยกเลิกเมนูเดียว" ในออเดอร์เท่านั้น
+ * Body: { note?: string }
  */
 router.patch("/items/:orderItemId", async (req, res) => {
   const { orderItemId } = req.params;
-  const { status, note } = req.body || {};
-
-  if (!status || !ALLOWED_ITEM_STATUS.has(status)) {
-    return res.status(400).json({ error: "Invalid or missing status." });
-  }
+  const { note } = req.body || {};
+  const userId = req.user?.user_id ?? null;
 
   try {
-    // Fetch current item
+    // ดึงข้อมูล item + order status
     const [rows] = await pool.query(
       `
       SELECT 
-        oi.order_item_id, oi.order_id, oi.status AS current_status, oi.subtotal
+        oi.order_item_id,
+        oi.order_id,
+        oi.status       AS current_status,
+        oi.subtotal,
+        o.status        AS order_status
       FROM order_item oi
+      JOIN orders o ON o.order_id = oi.order_id
       WHERE oi.order_item_id = ?
       `,
       [orderItemId]
     );
+
     if (rows.length === 0) {
       return res.status(404).json({ error: "Order item not found." });
     }
+
     const item = rows[0];
+    const fromStatus = String(item.current_status || "").toLowerCase();
+    const orderStatus = String(item.order_status || "").toLowerCase();
 
-    // Validate allowed status transitions (admin)
-    const from = String(item.current_status || "").toLowerCase();
-    const to = String(status || "").toLowerCase();
-    if (!ITEM_FLOWS[from]?.includes(to)) {
-      return res.status(400).json({ error: `Invalid status transition from ${from} to ${to}` });
+    // 1) กันไม่ให้แก้ item ของออเดอร์ที่ปิดไปแล้ว
+    if (orderStatus === "completed" || orderStatus === "cancelled") {
+      return res.status(409).json({ error: "Order already closed." });
     }
 
-    // Update item status (+ cancelled_at handling)
-    if (status === "cancelled") {
-      await pool.query(
-        `UPDATE order_item SET status = ?, cancelled_at = NOW() WHERE order_item_id = ?`,
-        [status, orderItemId]
-      );
-    } else {
-      await pool.query(
-        `UPDATE order_item SET status = ?, cancelled_at = NULL WHERE order_item_id = ?`,
-        [status, orderItemId]
-      );
+    // 2) ถ้า item ถูกยกเลิกไปแล้ว ไม่ต้องทำอะไร
+    if (fromStatus === "cancelled") {
+      return res.status(409).json({ error: "Item already cancelled." });
     }
 
-    // Insert status log
-    const userId = req.user?.user_id ?? null;
+    const toStatus = "cancelled";
+
+    // 3) อัปเดต item → cancelled + cancelled_at
     await pool.query(
       `
-      INSERT INTO order_status_log (order_id, user_id, from_status, to_status, note, created_at)
-      VALUES (?, ?, ?, ?, ?, NOW())
+      UPDATE order_item
+      SET status = ?, cancelled_at = NOW()
+      WHERE order_item_id = ?
       `,
-      [item.order_id, userId, item.current_status, status, note ?? null]
+      [toStatus, orderItemId]
     );
 
-    // Recalculate order total (exclude cancelled items)
+    // 4) log ลง order_status_log (ผูกกับ order นี้)
+    try {
+      await pool.query(
+        `
+        INSERT INTO order_status_log (order_id, user_id, from_status, to_status, note, created_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
+        `,
+        [item.order_id, userId, fromStatus, toStatus, note ?? null]
+      );
+    } catch (e) {
+      console.warn("order_status_log insert failed (item cancel):", e?.message || e);
+    }
+
+    // 5) ดูว่าทุกเมนูถูก cancel หมดหรือยัง (เช็คจากทุกแถวจริง ๆ กัน bug เรื่อง case/สะกด)
+    const [allItems] = await pool.query(
+      `
+      SELECT status
+      FROM order_item
+      WHERE order_id = ?
+      `,
+      [item.order_id]
+    );
+
+    const allCancelled =
+      Array.isArray(allItems) &&
+      allItems.length > 0 &&
+      allItems.every((row) => {
+        const s = String(row.status || "").toLowerCase();
+        return s === "cancelled" || s === "canceled";
+      });
+
+    if (allCancelled) {
+      // reuse flow เดียวกับการยกเลิกทั้งออเดอร์
+      req.params.orderId = String(item.order_id);
+      req.body.status = "cancelled";
+      return updateOrderStatusHandler(req, res);
+    }
+
+    // 6) ถ้ามีเมนูที่ยัง active เหลือ → แค่อัปเดตยอดรวม + updated_at (นับเฉพาะรายการที่ไม่ถูก cancel)
     const [[{ new_total }]] = await pool.query(
       `
       SELECT COALESCE(SUM(subtotal), 0) AS new_total
@@ -188,81 +208,43 @@ router.patch("/items/:orderItemId", async (req, res) => {
       `,
       [item.order_id]
     );
-    await pool.query(`UPDATE orders SET total_amount = ? WHERE order_id = ?`, [
-      new_total,
-      item.order_id,
-    ]);
 
-    // --- Sync parent order.status based on its items ---
-    const [[statusAgg]] = await pool.query(
+    await pool.query(
       `
-      SELECT
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)    AS pending_cnt,
-        SUM(CASE WHEN status = 'preparing' THEN 1 ELSE 0 END)  AS preparing_cnt,
-        SUM(CASE WHEN status = 'served' THEN 1 ELSE 0 END)     AS served_cnt,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)  AS completed_cnt,
-        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END)  AS cancelled_cnt,
-        COUNT(*)                                               AS total_cnt
-      FROM order_item
+      UPDATE orders
+      SET total_amount = ?, updated_at = NOW()
       WHERE order_id = ?
       `,
-      [item.order_id]
+      [new_total, item.order_id]
     );
-    
-    let newOrderStatus = "pending";
-    const {
-      pending_cnt = 0,
-      preparing_cnt = 0,
-      served_cnt = 0,
-      completed_cnt = 0,
-      cancelled_cnt = 0,
-      total_cnt = 0,
-    } = statusAgg || {};
-    
-    if (total_cnt > 0) {
-      // ถ้าทั้งหมดถูกยกเลิก → ยกเลิกทั้งออเดอร์
-      if (cancelled_cnt === total_cnt) {
-        newOrderStatus = "cancelled";
-      }
-      // ถ้ามี served หรือ completed อย่างน้อยหนึ่งรายการ → ถือว่า "served" (อย่า promote เป็น completed ที่นี่)
-      else if (served_cnt > 0 || completed_cnt > 0) {
-        newOrderStatus = "served";
-      }
-      // ถ้ามี preparing หรือ pending เหลือ → preparing
-      else if (pending_cnt > 0 || preparing_cnt > 0) {
-        newOrderStatus = "preparing";
-      }
-      // เงื่อนไขอื่น (default)
-      else {
-        newOrderStatus = "preparing";
-      }
 
-      await pool.query(`UPDATE orders SET status = ? WHERE order_id = ?`, [
-        newOrderStatus,
-        item.order_id,
-      ]);
-    }
-    // --- end sync parent status ---
-
-    // Activity log (best-effort)
+    // 7) admin activity log (best-effort)
     try {
       await safeLogActivity(
         userId,
         "order_item",
         Number(orderItemId),
         "status_change",
-        { order_id: item.order_id, from: item.current_status, to: status, note: note ?? null }
+        {
+          order_id: item.order_id,
+          from: fromStatus,
+          to: toStatus,
+          note: note ?? null,
+          by: "admin",
+        }
       );
     } catch (e) {
-      // non-blocking
-      console.warn("safeLogActivity failed:", e?.message || e);
+      console.warn("safeLogActivity failed (item cancel):", e?.message || e);
     }
 
-    // Return updated item + snapshot of order totals
+    // 8) ส่งข้อมูลกลับ (ให้ frontend เอาไปใช้ refresh UI ถ้าต้องการ)
     const [[updated]] = await pool.query(
       `
       SELECT 
-        oi.order_item_id, oi.order_id, oi.status, oi.cancelled_at,
+        oi.order_item_id,
+        oi.order_id,
+        oi.status,
+        oi.cancelled_at,
         (SELECT total_amount FROM orders WHERE order_id = oi.order_id) AS order_total
       FROM order_item oi
       WHERE oi.order_item_id = ?
@@ -272,8 +254,8 @@ router.patch("/items/:orderItemId", async (req, res) => {
 
     return res.json({ ok: true, item: updated });
   } catch (err) {
-    console.error("PATCH /api/admin/orders/items/:id error:", err);
-    return res.status(500).json({ error: "Failed to update order item status." });
+    console.error("PATCH /api/admin/orders/items/:orderItemId error:", err);
+    return res.status(500).json({ error: "Failed to cancel order item." });
   }
 });
 

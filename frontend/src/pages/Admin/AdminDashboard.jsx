@@ -205,6 +205,15 @@ export default function AdminDashboard() {
     cancelled: []
   };
 
+  // ---- Item status transitions (item-level) ----
+  const itemNextStatuses = {
+    pending: ["cancelled"],
+    preparing: ["cancelled"],
+    served: ["cancelled"],
+    completed: [],
+    cancelled: []
+  };
+
   const onUpdateOrderStatus = async (order, newStatus) => {
     if (!confirm(`Change order status to "${newStatus}" for ${order.order_code || `Order #${order.order_id}` }?`)) return;
     try {
@@ -213,6 +222,20 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error("updateOrderStatus error:", err);
       alert("Failed to update order status");
+    }
+  };
+
+  const onUpdateOrderItemStatus = async (order, item, newStatus) => {
+    if (!confirm(
+      `Change item status to "${newStatus}" for ${item.food_name} (Order #${order.order_id})?`
+    )) return;
+
+    try {
+      await api.adminOrders.updateOrderItemStatus(item.order_item_id, newStatus);
+      await loadOrders();
+    } catch (err) {
+      console.error("updateOrderItemStatus error:", err);
+      alert("Failed to update item status");
     }
   };
 
@@ -536,17 +559,36 @@ export default function AdminDashboard() {
                   {Number(o.total_amount || 0).toFixed(2)}
                 </div>
                 <div className="space-y-1">
-                  {o.items?.map((it) => (
-                    <div
-                      key={it.order_item_id}
-                      className="flex items-center justify-between text-sm border-b border-white/10 py-1"
-                    >
-                      <div>
-                        {it.food_name} × {it.quantity}
-                        <span className="ml-2 opacity-70">({it.status})</span>
+                  {o.items?.map((it) => {
+                    const orderStatusLower = String(o.status || "").toLowerCase();
+                    const itemStatusLower = String(it.status || "").toLowerCase();
+                    const canCancelItem =
+                      orderStatusLower !== "completed" &&
+                      orderStatusLower !== "cancelled" &&
+                      itemStatusLower !== "cancelled";
+
+                    return (
+                      <div
+                        key={it.order_item_id}
+                        className="flex items-center justify-between text-sm border-b border-white/10 py-1"
+                      >
+                        <div>
+                          {it.food_name} × {it.quantity}
+                          <span className="ml-2 opacity-70">({itemStatusLower})</span>
+                        </div>
+                        {canCancelItem && (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => onUpdateOrderItemStatus(o, it, "cancelled")}
+                              className="text-[11px] px-2 py-0.5 border rounded hover:bg-white/10"
+                            >
+                              cancel
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

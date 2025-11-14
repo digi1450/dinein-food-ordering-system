@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
+import { api } from "../../lib/api";
 
 const cleanId = (v) => {
   const s = String(v ?? "").trim().toLowerCase();
@@ -85,43 +86,44 @@ export default function OrderSummary() {
       setCancelErr("Cannot cancel: missing item id.");
       return;
     }
+
     try {
       setCancelingId(itemId);
-      const res = await fetch(`${API_BASE}/orders/order-items/${itemId}/cancel`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const t = await res.text().catch(() => "");
-        throw new Error(`Cancel failed (${res.status}): ${t || res.statusText}`);
-      }
-      // Optimistic update: keep the item but mark it as cancelled; recompute total excluding cancelled items.
+      // ใช้ api helper เรียก endpoint ยกเลิกเมนูฝั่งลูกค้า
+      const updated = await api.patch(`/orders/order-items/${itemId}/cancel`);
+
+      // อัปเดตสถานะในหน้า Summary จากผลลัพธ์ backend
       setData((prev) => {
-        if (!prev) return prev;
-        const nextItems = Array.isArray(prev.items)
-          ? prev.items.map((it) =>
-              firstId(it) === itemId ? { ...it, status: "cancelled" } : it
-            )
-          : [];
+        if (!updated) return prev;
 
-        // Recompute total from non-cancelled items only
-        const nextTotal = nextItems.reduce((sum, it) => {
-          if (String(it?.status || "").toLowerCase() === "cancelled") return sum;
-          const qty = num(it?.quantity, 0);
-          const preferred = it?.subtotal != null ? num(it.subtotal, NaN) : NaN;
-          const unit = num(it?.unit_price, NaN);
-          const price = num(it?.price, NaN);
-          const line = Number.isFinite(preferred)
-            ? preferred
-            : Number.isFinite(unit)
-            ? unit * qty
-            : Number.isFinite(price)
-            ? price * qty
-            : 0;
-          return sum + line;
-        }, 0);
+        let nextOrder = null;
+        // กรณี backend ส่ง order ตรง ๆ
+        if (updated.items && updated.order_id) {
+          nextOrder = updated;
+        }
+        // กรณี backend ส่งเป็น { order: {...} }
+        else if (updated.order && updated.order.items) {
+          nextOrder = updated.order;
+        } else {
+          nextOrder = prev;
+        }
 
-        return { ...prev, items: nextItems, total_amount: nextTotal };
+        if (!nextOrder) return prev;
+
+        // ถ้าทุกเมนูในออเดอร์ถูกยกเลิกแล้ว ให้ force สถานะเป็น cancelled และยอดรวมเป็น 0
+        const allCancelled = Array.isArray(nextOrder.items) &&
+          nextOrder.items.length > 0 &&
+          nextOrder.items.every((it) => String(it?.status || "").toLowerCase() === "cancelled");
+
+        if (allCancelled) {
+          nextOrder = {
+            ...nextOrder,
+            status: "cancelled",
+            total_amount: 0,
+          };
+        }
+
+        return nextOrder;
       });
       // Note: Do not auto-promote here; let SSE or explicit refresh manage order switching.
     } catch (e) {
@@ -214,9 +216,7 @@ export default function OrderSummary() {
       (async () => {
         try {
           setLoading(true);
-          const r = await fetch(`${API_BASE}/orders?table_id=${tableIdClean}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const list = await r.json();
+          const list = await api.get(`/orders?table_id=${tableIdClean}`);
           const latest = list?.[0]; // API orders by created_at DESC
           if (latest?.order_id) {
             setCurrentId(cleanId(latest.order_id));
@@ -266,9 +266,7 @@ export default function OrderSummary() {
     (async () => {
       try {
         setLoading(true);
-        const r = await fetch(`${API_BASE}/orders/${id}`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const d = await r.json();
+        const d = await api.get(`/orders/${id}`);
         // If a table filter is present and this order doesn't belong to that table, redirect to that table's latest order
         const tResolved = cleanId(tableIdResolved);
         if (tResolved && cleanId(d?.table_id) !== tResolved) {
@@ -291,13 +289,23 @@ export default function OrderSummary() {
         setData(d);
         setError("");
         setLastAt(new Date());
-        // keep latest order id for future visits
+        // keep latest order id for future visits, only if status is active
         try {
-          localStorage.setItem("last_order_id", String(d?.order_id || id));
+          const statusKey = String(d?.status || "").toLowerCase();
           const tForSave = cleanId(d?.table_id);
-          if (tForSave) {
-            localStorage.setItem(`last_order_id_by_table_${tForSave}`, String(d?.order_id || id));
-            localStorage.setItem('last_table_id', String(tForSave));
+
+          if (isActiveStatus(statusKey)) {
+            localStorage.setItem("last_order_id", String(d?.order_id || id));
+            if (tForSave) {
+              localStorage.setItem(`last_order_id_by_table_${tForSave}`, String(d?.order_id || id));
+              localStorage.setItem("last_table_id", String(tForSave));
+            }
+          } else {
+            localStorage.removeItem("last_order_id");
+            if (tForSave) {
+              localStorage.removeItem(`last_order_id_by_table_${tForSave}`);
+              localStorage.setItem("last_table_id", String(tForSave));
+            }
           }
         } catch {}
       } catch (e) {
@@ -308,47 +316,51 @@ export default function OrderSummary() {
     })();
   }, [currentId]);
 
-  // Helper to compute past orders for the current sitting (session-bounded, robust to timestamps)
-  const computePastOrders = (list, currentId) => {
-    const curStatus = String(data?.status || "").toLowerCase();
-    if (curStatus === "completed" || curStatus === "paid") return [];
-    const arr = Array.isArray(list) ? list.slice() : [];
-    // Identify the most recent completed order as the session boundary
-    const lastCompleted = arr.find(
-      (o) => String(o?.status || "").toLowerCase() === "completed"
-    );
+// Helper to compute past orders for the current sitting (session-bounded, robust to timestamps)
+const computePastOrders = (list, currentId) => {
+  const curStatus = String(data?.status || "").toLowerCase();
+  if (curStatus === "completed" || curStatus === "paid") return [];
+  const arr = Array.isArray(list) ? list.slice() : [];
 
-    // Helper to parse created_at safely
-    const toTime = (o) => {
-      const t = Date.parse(o?.created_at);
-      return Number.isFinite(t) ? t : null;
-    };
+  // Identify the most recent completed order as the session boundary
+  const lastCompleted = arr.find(
+    (o) => String(o?.status || "").toLowerCase() === "completed"
+  );
 
-    // Boundary timestamp / id (prefer timestamp; fallback to order_id)
-    const boundaryTs = lastCompleted ? toTime(lastCompleted) : null;
-    const boundaryId = lastCompleted ? Number(lastCompleted.order_id) : null;
-
-    const keep = [];
-    for (const o of arr) {
-      if (Number(o.order_id) === Number(currentId)) continue; // never include the current one
-      const st = String(o.status || "").toLowerCase();
-      if (st === "completed") continue; // never show completed inside Past orders list
-
-      // If we have a boundary completed, only include orders STRICTLY NEWER than that boundary
-      if (lastCompleted) {
-        const ot = toTime(o);
-        if (boundaryTs != null && ot != null) {
-          if (ot <= boundaryTs) continue; // older or same as last completed -> previous sittings, drop
-        } else if (boundaryId != null) {
-          if (Number(o.order_id) <= boundaryId) continue; // fallback by id
-        }
-      }
-
-      // At this point, o belongs to the current sitting (newer than boundary), so keep it
-      keep.push(o);
-    }
-    return keep;
+  const toTime = (o) => {
+    const t = Date.parse(o?.created_at);
+    return Number.isFinite(t) ? t : null;
   };
+
+  const boundaryTs = lastCompleted ? toTime(lastCompleted) : null;
+  const boundaryId = lastCompleted ? Number(lastCompleted.order_id) : null;
+
+  const keep = [];
+  for (const o of arr) {
+    if (Number(o.order_id) === Number(currentId)) continue;
+
+    const st = String(o.status || "").toLowerCase();
+
+    // ❌ ไม่ให้ cancelled โผล่ใน Past orders เลย
+    if (st === "cancelled" || st === "canceled") continue;
+
+    // เดิม: ไม่แสดง completed ใน Past orders
+    if (st === "completed") continue;
+
+    // ถ้ามี boundary (completed ล่าสุด) → เก็บเฉพาะออเดอร์ที่ "ใหม่กว่า" boundary
+    if (lastCompleted) {
+      const ot = toTime(o);
+      if (boundaryTs != null && ot != null) {
+        if (ot <= boundaryTs) continue;
+      } else if (boundaryId != null) {
+        if (Number(o.order_id) <= boundaryId) continue;
+      }
+    }
+
+    keep.push(o);
+  }
+  return keep;
+};
 
   // 2.5) Load recent orders by table (exclude current)
   useEffect(() => {
@@ -536,7 +548,7 @@ export default function OrderSummary() {
           <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">Loading...</div>
         ) : !data ? (
           <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">
-            No orders found for tables {tableIdParam || "—"} — Create a new order from the menu.
+            No active orders for table {tableIdParam || tableIdResolved || "—"} — Please create a new order from the menu.
           </div>
         ) : (
           <>
