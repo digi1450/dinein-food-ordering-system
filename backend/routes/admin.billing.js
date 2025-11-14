@@ -79,26 +79,28 @@ router.get("/", requireAdmin, async (req, res) => {
 router.get("/current", requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query(`
-      WITH latest_pending AS (
-        SELECT
-          b.*,
-          ROW_NUMBER() OVER (PARTITION BY b.table_id ORDER BY b.updated_at DESC, b.bill_id DESC) AS rn
-        FROM bill b
-        WHERE b.status = 'pending_payment'
-      )
       SELECT
         t.table_id,
         t.table_label,
-        lp.bill_id,
-        lp.bill_code,
-        lp.status,
-        lp.subtotal,
-        lp.discount,
-        lp.total_amount,
-        lp.updated_at
-      FROM table_info t
-      LEFT JOIN latest_pending lp
-        ON lp.table_id = t.table_id AND lp.rn = 1
+        b.bill_id,
+        b.bill_code,
+        b.status,
+        b.subtotal,
+        b.discount,
+        b.total_amount,
+        b.updated_at
+      FROM table_info AS t
+      LEFT JOIN bill AS b
+        ON b.table_id = t.table_id
+        AND b.status = 'pending_payment'
+        AND b.bill_id = (
+          SELECT b2.bill_id
+          FROM bill AS b2
+          WHERE b2.table_id = t.table_id
+            AND b2.status = 'pending_payment'
+          ORDER BY b2.updated_at DESC, b2.bill_id DESC
+          LIMIT 1
+        )
       ORDER BY t.table_id ASC
     `);
     res.json({ list: rows });
