@@ -1,3 +1,4 @@
+// backend/utils/safeLogActivity.js
 import pool from "../config/db.js";
 
 export default async function safeLogActivity(user_id, entity_type, entity_id, action, details = null) {

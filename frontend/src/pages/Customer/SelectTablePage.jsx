@@ -1,3 +1,4 @@
+// frontend/src/pages/Customer/SelectTablePage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";

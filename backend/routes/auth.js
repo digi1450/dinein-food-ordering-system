@@ -1,3 +1,4 @@
+// backend/routes/auth.js
 import { Router } from "express";
 import pool from "../config/db.js";
 import jwt from "jsonwebtoken";

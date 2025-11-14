@@ -1,4 +1,4 @@
-// HomePage.jsx
+// frontend/src/pages/Customer/HomePage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";

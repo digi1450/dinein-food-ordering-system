@@ -1,3 +1,4 @@
+// frontend/src/pages/Customer/CheckoutSummary.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";

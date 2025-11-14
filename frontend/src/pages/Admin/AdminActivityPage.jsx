@@ -1,3 +1,4 @@
+// frontend/src/pages/Admin/AdminActivityPage.jsx
 import { useEffect, useState } from "react";
 import API_BASE from "../../lib/apiBase";
 

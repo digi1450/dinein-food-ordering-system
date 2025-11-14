@@ -1,3 +1,4 @@
+// backend/routes/admin.orders.js
 import express from "express";
 import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";

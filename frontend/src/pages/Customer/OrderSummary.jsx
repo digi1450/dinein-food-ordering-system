@@ -1,4 +1,4 @@
-// OrderSummary.jsx
+// frontend/src/pages/Customer/OrderSummary.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";

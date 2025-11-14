@@ -1,4 +1,4 @@
-
+// frontend/src/lib/apiBase.js
 const fromEnv = (import.meta?.env?.VITE_API_BASE || import.meta?.env?.VITE_API || "").trim();
 
 let API_BASE = "http://127.0.0.1:5050/api"; // default for local backend
