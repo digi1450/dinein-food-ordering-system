@@ -24,8 +24,9 @@ export default function AdminActivityPage() {
   const [action, setAction] = useState("");
   const [dateRange, setDateRange] = useState("7d"); // 1d,7d,30d,all
   const [refreshTick, setRefreshTick] = useState(0);
+  const [liveTick, setLiveTick] = useState(0);
 
-  const token = localStorage.getItem("token") || "";
+  const token = sessionStorage.getItem("token") || "";
 
   function buildDateRangeParams() {
     if (dateRange === "all") return {};
@@ -41,44 +42,105 @@ export default function AdminActivityPage() {
     return { date_from: dateFrom, date_to: dateTo };
   }
 
-  useEffect(() => {
-    const controller = new AbortController();
-    async function load() {
+  // Helper to fetch activity, optionally showing spinner
+  const fetchActivity = async ({ signal, showSpinner } = {}) => {
+    if (showSpinner) {
       setLoading(true);
-      setErr(null);
-      try {
-        const params = new URLSearchParams();
-        params.set("page", String(page));
-        params.set("pageSize", String(PAGE_SIZE));
-        if (q.trim()) params.set("q", q.trim());
-        if (entityType) params.set("entity_type", entityType);
-        if (action) params.set("action", action);
+    }
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
+      if (q.trim()) params.set("q", q.trim());
+      if (entityType) params.set("entity_type", entityType);
+      if (action) params.set("action", action);
 
-        const { date_from, date_to } = buildDateRangeParams();
-        if (date_from) params.set("date_from", date_from);
-        if (date_to) params.set("date_to", date_to);
+      const { date_from, date_to } = buildDateRangeParams();
+      if (date_from) params.set("date_from", date_from);
+      if (date_to) params.set("date_to", date_to);
 
-        const resp = await fetch(`${API_BASE}/admin/activity?` + params.toString(), {
-          headers: {
-            Authorization: token ? `Bearer ${token}` : "",
-          },
-          signal: controller.signal,
-        });
-        if (!resp.ok) throw new Error("Failed to load activity.");
-        const data = await resp.json();
-        setActivities(data.list || []);
-        setTotalPages(data.totalPages || 0);
-      } catch (e) {
-        if (e.name === "AbortError") return;
-        setErr(e.message || "Error");
-      } finally {
+      const resp = await fetch(`${API_BASE}/admin/activity?` + params.toString(), {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+        signal,
+      });
+      if (!resp.ok) throw new Error("Failed to load activity.");
+      const data = await resp.json();
+      setActivities(data.list || []);
+      setTotalPages(data.totalPages || 0);
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      setErr(e.message || "Error");
+    } finally {
+      if (showSpinner) {
         setLoading(false);
       }
     }
-    load();
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchActivity({ signal: controller.signal, showSpinner: true });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q, entityType, action, dateRange, refreshTick]);
+
+  useEffect(() => {
+    if (!liveTick) return;
+    // For live updates we refetch in the background without showing the Loading... row
+    fetchActivity({ showSpinner: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveTick]);
+
+  useEffect(() => {
+    // Open SSE for live admin activity
+    let es;
+    // Handler must be accessible for cleanup
+    const bumpLive = () => {
+      setLiveTick((t) => t + 1);
+    };
+    try {
+      const token = sessionStorage.getItem("token") || "";
+      const url = token
+        ? `${API_BASE}/admin/activity/stream?token=${encodeURIComponent(token)}`
+        : `${API_BASE}/admin/activity/stream`;
+
+      es = new EventSource(url);
+
+      // Single handler to bump a live tick whenever any activity-related SSE event arrives
+      // Listen for a named "activity" event (if backend uses `event: activity`)
+      es.addEventListener("activity", bumpLive);
+
+      // Also listen to default `message` events (if backend omits the `event:` field)
+      es.onmessage = () => {
+        bumpLive();
+      };
+
+      es.onerror = () => {
+        // Normal for EventSource to emit "error" when the connection is idle or server restarts.
+        // Browser will automatically attempt to reconnect, so we keep this quiet unless it fully closes.
+        if (es.readyState === EventSource.CLOSED) {
+          console.log("[AdminActivity] SSE connection closed. Browser will attempt to reconnect.");
+        }
+        // Do NOT call es.close() here, so auto-reconnect keeps working.
+      };
+    } catch (e) {
+      console.error("[AdminActivity] Failed to init SSE:", e);
+    }
+
+    return () => {
+      if (es) {
+        try {
+          es.removeEventListener("activity", bumpLive);
+        } catch (_) {
+          // ignore
+        }
+        es.close();
+      }
+    };
+  }, []);
 
   const handleRefresh = () => {
     setPage(1);

@@ -44,8 +44,8 @@ export default function AdminLogin() {
       if (!token) throw new Error("No token returned from server");
 
       // บันทึก token
-      localStorage.setItem("token", token);
-      localStorage.setItem("isAdmin", "true");
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("isAdmin", "true");
 
       // ไปหน้าแดชบอร์ด
       nav("/admin/dashboard", { replace: true });

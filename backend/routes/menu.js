@@ -2,6 +2,13 @@
 import express from "express";
 import pool from "../config/db.js";
 
+// ===== SSE: Realtime Menu Stream =====
+const menuClients = [];
+function menuBroadcast(payload) {
+  const data = JSON.stringify(payload);
+  menuClients.forEach((res) => res.write(`data: ${data}\n\n`));
+}
+
 const router = express.Router();
 
 // GET /api/menu  (optional ?cat=)
@@ -17,6 +24,7 @@ router.get("/", async (req, res) => {
          ORDER BY f.food_name ASC`,
         [cat]
       );
+      menuBroadcast({ type: "menu_updated" });
       return res.json(rows);
     } else {
       const [rows] = await pool.query(
@@ -26,6 +34,7 @@ router.get("/", async (req, res) => {
          WHERE f.is_active = 1
          ORDER BY c.category_name, f.food_name ASC`
       );
+      menuBroadcast({ type: "menu_updated" });
       return res.json(rows);
     }
   } catch (e) {
@@ -50,6 +59,22 @@ router.get("/categories", async (_req, res) => {
     console.error(e);
     res.status(500).send("Categories error");
   }
+});
+
+// SSE stream for realtime menu updates
+router.get("/stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  res.write("retry: 1000\n\n");
+
+  menuClients.push(res);
+
+  req.on("close", () => {
+    const idx = menuClients.indexOf(res);
+    if (idx >= 0) menuClients.splice(idx, 1);
+  });
 });
 
 export default router;

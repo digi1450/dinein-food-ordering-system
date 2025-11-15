@@ -1,5 +1,5 @@
 // frontend/src/pages/Customer/MenuPage.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 
@@ -26,24 +26,75 @@ export default function MenuPage() {
   // ตรวจสอบสถานะของออเดอร์ในโต๊ะนี้
   const [hasActiveOrders, setHasActiveOrders] = useState(false);
 
+  // Realtime: listen for order status changes for this table via SSE
   useEffect(() => {
     if (!tableId) return;
-    (async () => {
+
+    // ถ้า browser ไม่รองรับ EventSource ให้ข้าม (จะ fallback เป็นค่าเริ่มต้น false)
+    if (typeof window === "undefined" || typeof EventSource === "undefined") {
+      return;
+    }
+
+    const streamUrl = `${API_BASE}/orders/stream-table?table=${encodeURIComponent(
+      tableId
+    )}`;
+
+    let es;
+    try {
+      es = new EventSource(streamUrl, { withCredentials: false });
+    } catch (err) {
+      console.error("[MenuPage] orders EventSource init error:", err);
+      return;
+    }
+
+    es.onmessage = (evt) => {
       try {
-        const r = await fetch(`${API_BASE}/orders?table_id=${tableId}`);
-        if (!r.ok) throw new Error("Failed to fetch orders");
-        const list = await r.json();
-        // ถ้ามีแม้ออเดอร์เดียวที่ยังไม่ complete/paid → ถือว่ายัง active
-        const active = Array.isArray(list)
-          ? list.some((o) => !["completed", "paid"].includes(String(o.status).toLowerCase()))
-          : false;
-        setHasActiveOrders(active);
-      } catch {
-        setHasActiveOrders(false);
+        const payload = JSON.parse(evt.data);
+        // backend ส่ง { table_id, hasActive } มาตามโต๊ะ
+        setHasActiveOrders(!!payload.hasActive);
+      } catch (e) {
+        console.error("[MenuPage] orders EventSource parse error:", e);
       }
-    })();
+    };
+
+    es.onerror = (err) => {
+      console.warn("[MenuPage] orders EventSource error, closing stream:", err);
+      es.close();
+    };
+
+    return () => {
+      es && es.close();
+    };
   }, [tableId]);
 
+  // SSE connection for realtime menu updates
+  const menuStreamRef = useRef(null);
+
+  // Helper: load menu for current category
+  const loadMenu = useCallback(
+    async ({ background = false } = {}) => {
+      if (!background) {
+        setLoading(true);
+      }
+      setErr(null);
+      try {
+        const url = catId
+          ? `${API_BASE}/menu?cat=${encodeURIComponent(catId)}`
+          : `${API_BASE}/menu`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Failed to load menu");
+        const data = await res.json();
+        setFoods(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setErr(e.message || "Failed to load menu");
+      } finally {
+        if (!background) {
+          setLoading(false);
+        }
+      }
+    },
+    [catId]
+  );
 
   useEffect(() => {
     if (!tableId) nav("/", { replace: true });
@@ -69,26 +120,58 @@ export default function MenuPage() {
     })();
   }, []);
 
-  // โหลดอาหารตามหมวด
+  // โหลดอาหารตามหมวด (ครั้งแรก + เมื่อเปลี่ยนหมวด)
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const url = catId
-          ? `${API_BASE}/menu?cat=${encodeURIComponent(catId)}`
-          : `${API_BASE}/menu`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("Failed to load menu");
-        const data = await res.json();
-        setFoods(Array.isArray(data) ? data : []);
-      } catch (e) {
-        setErr(e.message);
-      } finally {
-        setLoading(false);
+    loadMenu();
+  }, [loadMenu]);
+
+  // Realtime: subscribe to menu updates via SSE and refetch when something changes
+  useEffect(() => {
+    // ถ้า browser ไม่รองรับ EventSource ก็ไม่ต้องทำอะไร ปล่อยให้ใช้โหลดครั้งเดียว
+    if (typeof window === "undefined" || typeof EventSource === "undefined") {
+      return;
+    }
+
+    // ปิดของเก่าถ้ายังเปิดอยู่
+    if (menuStreamRef.current) {
+      menuStreamRef.current.close();
+      menuStreamRef.current = null;
+    }
+
+    const streamUrl = `${API_BASE}/menu/stream`;
+    let es;
+    try {
+      es = new EventSource(streamUrl, { withCredentials: false });
+    } catch (err) {
+      console.error("[MenuPage] EventSource init error:", err);
+      return;
+    }
+
+    menuStreamRef.current = es;
+
+    es.onmessage = (evt) => {
+      // ถ้ามี payload แบบ ping จาก backend และคุณต้องการกรอง ก็เช็กเพิ่มตรงนี้ได้
+      // เช่น: if (evt.data === "ping") return;
+      // โหลดเมนูใหม่แบบ background (ไม่โชว์ skeleton)
+      loadMenu({ background: true });
+    };
+
+    es.onerror = (err) => {
+      console.warn("[MenuPage] EventSource error, closing stream:", err);
+      if (menuStreamRef.current) {
+        menuStreamRef.current.close();
+        menuStreamRef.current = null;
       }
-    })();
-  }, [catId]);
+    };
+
+    // cleanup ตอน unmount หรือ dependency เปลี่ยน
+    return () => {
+      if (menuStreamRef.current) {
+        menuStreamRef.current.close();
+        menuStreamRef.current = null;
+      }
+    };
+  }, [loadMenu]);
 
   useEffect(() => {
     try {

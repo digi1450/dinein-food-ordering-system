@@ -3,16 +3,44 @@ import API_BASE from "./apiBase";
 const DEFAULT_TIMEOUT = 10000; // 10s
 
 export function getToken() {
-  try { return localStorage.getItem("token") || ""; } catch { return ""; }
+  try {
+    return (
+      (typeof sessionStorage !== "undefined" && sessionStorage.getItem("token")) ||
+      (typeof localStorage !== "undefined" && localStorage.getItem("token")) ||
+      ""
+    );
+  } catch {
+    return "";
+  }
 }
 export function setToken(token) {
   if (!token) return;
-  localStorage.setItem("token", token);
-  localStorage.setItem("isAdmin", "true");
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("isAdmin", "true");
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("token", token);
+      localStorage.setItem("isAdmin", "true");
+    }
+  } catch {
+    // ignore storage errors (e.g., private mode)
+  }
 }
 export function clearToken() {
-  localStorage.removeItem("token");
-  localStorage.removeItem("isAdmin");
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("isAdmin");
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("isAdmin");
+    }
+  } catch {
+    // ignore storage errors
+  }
 }
 
 export function buildQuery(params = {}) {

@@ -1,6 +1,7 @@
 // backend/routes/billing.js
 import express from "express";
 import pool from "../config/db.js";
+import { publish } from "./order.js";
 
 const router = express.Router();
 
@@ -524,6 +525,18 @@ router.post("/checkout/confirm", async (req, res) => {
     );
 
     await conn.commit();
+
+    // After successful checkout, publish realtime updates for each completed order
+    if (Array.isArray(orderIds) && orderIds.length) {
+      for (const oid of orderIds) {
+        try {
+          await publish(oid);
+        } catch (pubErr) {
+          console.error("[BILLING] publish error for order", oid, pubErr);
+        }
+      }
+    }
+
     return res.json({ ok:true, bill: finalBill, completed_order_ids: orderIds });
   } catch (e) {
     await conn.rollback();

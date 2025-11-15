@@ -3,7 +3,8 @@ import { Router } from "express";
 import pool from "../config/db.js";
 
 const router = Router();
-function allowDevOrigin(res, req) {
+
+function allowDevOrigin(req, res) {
   const origin = req.headers.origin;
   if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -73,6 +74,22 @@ async function getOrderFlat(orderId) {
 ---------------------------------------------- */
 const orderSubscribers = new Map();      // Map<orderId:number, Set<res>>
 const adminFeedSubscribers = new Set();  // Set<res>
+const tableOrderSubscribers = new Map(); // Map<tableId:string, Set<res>>
+
+function subscribeTableOrders(tableKey, res) {
+  let set = tableOrderSubscribers.get(tableKey);
+  if (!set) {
+    set = new Set();
+    tableOrderSubscribers.set(tableKey, set);
+  }
+  set.add(res);
+  res.on("close", () => {
+    set.delete(res);
+    if (set.size === 0) {
+      tableOrderSubscribers.delete(tableKey);
+    }
+  });
+}
 
 function subscribeOrder(orderId, res) {
   let set = orderSubscribers.get(orderId);
@@ -92,6 +109,39 @@ function subscribeAdminFeed(res) {
   res.on("close", () => adminFeedSubscribers.delete(res));
 }
 
+async function hasActiveOrdersForTable(tableId) {
+  const n = Number(tableId);
+  if (!Number.isFinite(n) || n <= 0) return false;
+
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS cnt
+     FROM orders
+     WHERE table_id = ?
+       AND status NOT IN ('completed','cancelled')
+       AND total_amount IS NOT NULL`,
+    [n]
+  );
+
+  const cnt = rows && rows[0] && Number(rows[0].cnt);
+  return Number.isFinite(cnt) && cnt > 0;
+}
+
+async function broadcastTableOrders(tableId) {
+  const key = String(tableId);
+  const subs = tableOrderSubscribers.get(key);
+  if (!subs || !subs.size) return;
+
+  const hasActive = await hasActiveOrdersForTable(tableId);
+  const payload = `data: ${JSON.stringify({ table_id: Number(tableId) || null, hasActive })}\n\n`;
+
+  for (const res of subs) {
+    try {
+      res.write(payload);
+    } catch (_) {
+      // ignore broken connection
+    }
+  }
+}
 async function getRecentOrders(limit = 30) {
   const [rows] = await pool.query(
     `SELECT 
@@ -112,25 +162,47 @@ async function getRecentOrders(limit = 30) {
 }
 
 async function publish(orderId) {
+  let snapshot = null;
+
+  // Load snapshot once (used for per-order SSE and for table-level broadcast)
+  try {
+    snapshot = await getOrderFlat(orderId);
+  } catch (e) {
+    // ignore snapshot errors
+  }
+
   // push snapshot to per-order listeners
   const subs = orderSubscribers.get(orderId);
-  if (subs && subs.size) {
-    try {
-      const snapshot = await getOrderFlat(orderId);
-      const payload = `data: ${JSON.stringify(snapshot)}\n\n`;
-      for (const res of subs) res.write(payload);
-    } catch (e) {
-      // ignore
+  if (snapshot && subs && subs.size) {
+    const payload = `data: ${JSON.stringify(snapshot)}\n\n`;
+    for (const res of subs) {
+      try {
+        res.write(payload);
+      } catch (_) {
+        // ignore broken connection
+      }
     }
   }
+
+  // push table-level updates for this order's table (used by customer MenuPage indicator)
+  if (snapshot && snapshot.table_id != null) {
+    broadcastTableOrders(snapshot.table_id).catch(() => {});
+  }
+
   // push feed to admin listeners
   if (adminFeedSubscribers.size) {
     try {
       const feed = await getRecentOrders();
       const payload = `data: ${JSON.stringify(feed)}\n\n`;
-      for (const res of adminFeedSubscribers) res.write(payload);
+      for (const res of adminFeedSubscribers) {
+        try {
+          res.write(payload);
+        } catch (_) {
+          // ignore broken connection
+        }
+      }
     } catch (e) {
-      // ignore
+      // ignore admin feed error
     }
   }
 }
@@ -143,7 +215,7 @@ router.get("/stream-all", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  allowDevOrigin(res, req);
+  allowDevOrigin(req, res);
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -159,6 +231,45 @@ router.get("/stream-all", async (req, res) => {
   const interval = setInterval(() => {
     res.write(":keep-alive\n\n");
   }, 15000);
+  res.on("close", () => {
+    clearInterval(interval);
+  });
+});
+
+/* ---------------------------------------------
+   GET /api/orders/stream-table?table=1 → SSE for per-table order activity
+   (must come before /:id)
+---------------------------------------------- */
+router.get("/stream-table", async (req, res) => {
+  const tableParam = String(req.query.table || "").trim();
+  if (!tableParam) {
+    return res.status(400).json({ message: "table query param is required" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  allowDevOrigin(req, res);
+
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+  // initial payload: does this table currently have any active orders?
+  try {
+    const hasActive = await hasActiveOrdersForTable(tableParam);
+    const initialPayload = { table_id: Number(tableParam) || null, hasActive };
+    res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+  } catch (e) {
+    // ignore initial error, client can still stay connected
+  }
+
+  // subscribe this connection for future updates of this table
+  subscribeTableOrders(String(tableParam), res);
+
+  // heartbeat
+  const interval = setInterval(() => {
+    res.write(":keep-alive\n\n");
+  }, 15000);
+
   res.on("close", () => {
     clearInterval(interval);
   });
@@ -194,7 +305,7 @@ router.get("/:id/stream", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-  allowDevOrigin(res, req);
+  allowDevOrigin(req, res);
 
   if (typeof res.flushHeaders === "function") res.flushHeaders();
 
@@ -563,4 +674,5 @@ router.patch("/order-items/:itemId/cancel", async (req, res) => {
   }
 });
 
+export { publish };
 export default router;

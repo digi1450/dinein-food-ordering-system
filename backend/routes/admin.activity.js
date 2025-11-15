@@ -4,7 +4,24 @@ import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
+// เก็บ connection ของ SSE clients ที่กำลังฟังอยู่
+let activityClients = [];
 
+// helper: ส่ง event ไปหา client ทุกคน
+export function pushActivityEvent(payload = { type: "activity_updated" }) {
+  const data = JSON.stringify(payload);
+  // ล้าง client ที่หลุดไปแล้วแบบเงียบ ๆ
+  activityClients = activityClients.filter((client) => !!client && !!client.res);
+  for (const client of activityClients) {
+    try {
+      client.res.write(`event: activity\n`);
+      client.res.write(`data: ${data}\n\n`);
+    } catch (e) {
+      // ถ้าเขียนไม่ได้ก็ไม่เป็นไร ปล่อยให้หลุดไปเอง
+      console.warn("pushActivityEvent write error:", e.message);
+    }
+  }
+}
 // helper แปลงเป็น number แบบปลอดภัย
 function toNumber(v, def = null) {
   const n = Number(v);
@@ -134,6 +151,48 @@ router.get("/", requireAdmin, async (req, res) => {
     console.error("GET /api/admin/activity error:", e);
     return res.status(500).json({ message: "Failed to fetch activity log." });
   }
+});
+
+// --- SSE stream: /api/admin/activity/stream ---
+router.get("/stream", requireAdmin, (req, res) => {
+  // Proper CORS for SSE
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  if (res.flushHeaders) res.flushHeaders();
+
+  const client = { id: Date.now(), res };
+  activityClients.push(client);
+
+  // Initial ping
+  try {
+    res.write(`event: ping\ndata: "hello"\n\n`);
+  } catch (_) {}
+
+  // Keep connection alive
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(`event: ping\ndata: "keepalive"\n\n`);
+    } catch (e) {
+      console.warn("SSE keepAlive error:", e.message);
+    }
+  }, 20000);
+
+  const cleanup = () => {
+    clearInterval(keepAlive);
+    activityClients = activityClients.filter((c) => c !== client);
+  };
+
+  req.on("close", cleanup);
+  req.on("error", cleanup);
 });
 
 export default router;

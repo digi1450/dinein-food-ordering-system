@@ -1,5 +1,5 @@
 // frontend/src/pages/Admin/AdminDashboard.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import API_BASE from "../../lib/apiBase";
@@ -48,6 +48,10 @@ function normalizeCurrentBills(list) {
 
 export default function AdminDashboard() {
   const nav = useNavigate();
+  // unique id per admin tab (for cross-tab sync loop protection)
+  const tabInstanceIdRef = useRef(
+    Math.random().toString(36).slice(2) + Date.now().toString(36)
+  );
 
   // tabs: orders | menu | activity
   const [tab, setTab] = useState("orders");
@@ -161,6 +165,18 @@ export default function AdminDashboard() {
       }
       alert("Bill confirmed as PAID ✅");
       await Promise.all([loadCurrentBills(), loadPastBills()]);
+
+      // broadcast: notify other admin tabs that bills changed
+      try {
+        localStorage.setItem(
+          "admin_sync",
+          JSON.stringify({
+            ts: Date.now(),
+            source: tabInstanceIdRef.current,
+            scope: "bills",
+          })
+        );
+      } catch {}
     } catch (e) {
       console.error("onMarkBillPaid error:", e);
       alert(e?.message || "Failed to confirm payment");
@@ -186,7 +202,33 @@ export default function AdminDashboard() {
     setLoadingOrders(true);
     try {
       const res = await api.adminOrders.getOrders();
-      setOrders(res.list || []);
+      const incoming = Array.isArray(res?.list) ? res.list : [];
+
+      // Merge with existing orders: if the new snapshot has no items for a given order,
+      // keep the previous items instead of wiping them out.
+      setOrders((prev) => {
+        const prevById = new Map();
+        (Array.isArray(prev) ? prev : []).forEach((o) => {
+          if (o && o.order_id != null) {
+            prevById.set(o.order_id, o);
+          }
+        });
+
+        return incoming.map((o) => {
+          const existing = prevById.get(o.order_id) || {};
+          const mergedItems = Array.isArray(o.items)
+            ? o.items
+            : Array.isArray(existing.items)
+            ? existing.items
+            : [];
+
+          return {
+            ...existing,
+            ...o,
+            items: mergedItems,
+          };
+        });
+      });
     } catch (err) {
       console.error("loadOrders error:", err);
       alert("Failed to load orders");
@@ -219,6 +261,18 @@ export default function AdminDashboard() {
     try {
       await api.adminOrders.updateOrderStatus(order.order_id, newStatus);
       await loadOrders();
+
+      // broadcast: notify other admin tabs that orders list changed
+      try {
+        localStorage.setItem(
+          "admin_sync",
+          JSON.stringify({
+            ts: Date.now(),
+            source: tabInstanceIdRef.current,
+            scope: "orders",
+          })
+        );
+      } catch {}
     } catch (err) {
       console.error("updateOrderStatus error:", err);
       alert("Failed to update order status");
@@ -233,6 +287,18 @@ export default function AdminDashboard() {
     try {
       await api.adminOrders.updateOrderItemStatus(item.order_item_id, newStatus);
       await loadOrders();
+
+      // broadcast: notify other admin tabs that orders list changed
+      try {
+        localStorage.setItem(
+          "admin_sync",
+          JSON.stringify({
+            ts: Date.now(),
+            source: tabInstanceIdRef.current,
+            scope: "orders",
+          })
+        );
+      } catch {}
     } catch (err) {
       console.error("updateOrderItemStatus error:", err);
       alert("Failed to update item status");
@@ -241,22 +307,90 @@ export default function AdminDashboard() {
 
   // ---- Guard: ไม่มี token ให้เด้งไป login ----
   useEffect(() => {
-    const t = localStorage.getItem("token");
+    const t = sessionStorage.getItem("token");
     if (!t) {
       nav("/admin/login", { replace: true });
     }
   }, [nav]);
 
+  // ---- Cross-tab sync via localStorage (Admin Dashboard) ----
+  useEffect(() => {
+    const instanceId = tabInstanceIdRef.current;
+
+    const handleStorage = (e) => {
+      if (e.key !== "admin_sync") return;
+      if (!e.newValue) return;
+
+      try {
+        const msg = JSON.parse(e.newValue || "{}");
+        // ignore events from the same tab
+        if (!msg || msg.source === instanceId) return;
+
+        const scope = msg.scope || "all";
+
+        if (scope === "all" || scope === "orders") {
+          loadOrders();
+        }
+        if (scope === "all" || scope === "bills") {
+          loadCurrentBills();
+          loadPastBills();
+        }
+        if (scope === "all" || scope === "menu") {
+          loadMenu();
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
   // ---- Realtime orders (SSE feed) ----
   useEffect(() => {
-    // ถ้า stream นี้ต้องใช้ auth ให้เปลี่ยนไปใช้ ?token=... ใน query (EventSource ใส่ header ไม่ได้)
-    const es = new EventSource(`${API_BASE}/orders/stream-all`);
-    es.onmessage = (e) => {
-      try { setOrders(JSON.parse(e.data)); } catch {}
+    // เปิด SSE เฉพาะตอนอยู่ในแท็บที่ต้องการ realtime (orders, bills, menu)
+    const shouldListen = tab === "orders" || tab === "bills" || tab === "menu";
+    if (!shouldListen) return;
+
+    let es;
+    try {
+      const token = sessionStorage.getItem("token");
+      const url = token
+        ? `${API_BASE}/orders/stream-all?token=${encodeURIComponent(token)}`
+        : `${API_BASE}/orders/stream-all`;
+
+      es = new EventSource(url, { withCredentials: false });
+
+      es.onmessage = () => {
+        // ถ้าแท็บนี้ไม่ได้ถูกมองอยู่ (background tab) → ไม่ต้องโหลดอะไร เพื่อลดการกระพริบ
+        if (document.visibilityState !== "visible") return;
+
+        // อัปเดตเฉพาะข้อมูลของ tab ปัจจุบัน เพื่อลดการรีเฟรชเกินจำเป็น
+        if (tab === "orders") {
+          loadOrders();
+        } else if (tab === "bills") {
+          loadCurrentBills();
+          loadPastBills();
+        } else if (tab === "menu") {
+          loadMenu();
+        }
+      };
+
+      es.onerror = (err) => {
+        console.error("AdminDashboard SSE error:", err);
+        if (es) es.close();
+      };
+    } catch (err) {
+      console.error("AdminDashboard SSE init error:", err);
+    }
+
+    return () => {
+      if (es) es.close();
     };
-    es.onerror = () => es.close();
-    return () => es.close();
-  }, []);
+  }, [tab]);
 
   // ---- load menu list (ต้องแนบ token) ----
   const loadMenu = async () => {
@@ -310,6 +444,18 @@ export default function AdminDashboard() {
       setForm({ category_id: "2", food_name: "", price: "", description: "", is_active: 1 });
       setEditingId(null);
       await loadMenu();
+
+      // broadcast: notify other admin tabs that menu has changed
+      try {
+        localStorage.setItem(
+          "admin_sync",
+          JSON.stringify({
+            ts: Date.now(),
+            source: tabInstanceIdRef.current,
+            scope: "menu",
+          })
+        );
+      } catch {}
     } catch (err) {
       alert(err?.message || "Save failed");
     } finally {
@@ -342,6 +488,18 @@ export default function AdminDashboard() {
       await loadMenu();
       alert("Deleted ✅");
       if (editingId === food_id) onCancelEdit();
+
+      // broadcast: notify other admin tabs that menu has changed
+      try {
+        localStorage.setItem(
+          "admin_sync",
+          JSON.stringify({
+            ts: Date.now(),
+            source: tabInstanceIdRef.current,
+            scope: "menu",
+          })
+        );
+      } catch {}
     } catch (err) {
       alert(err?.message || "Delete failed");
     } finally {
@@ -350,8 +508,8 @@ export default function AdminDashboard() {
   };
 
   const onLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("isAdmin");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("isAdmin");
     nav("/admin/login", { replace: true });
   };
 

@@ -3,6 +3,7 @@ import express from "express";
 import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
 import safeLogActivity from "../utils/safeLogActivity.js";
+import { publish } from "./order.js";
 
 const router = express.Router();
 
@@ -238,7 +239,14 @@ router.patch("/items/:orderItemId", async (req, res) => {
       console.warn("safeLogActivity failed (item cancel):", e?.message || e);
     }
 
-    // 8) ส่งข้อมูลกลับ (ให้ frontend เอาไปใช้ refresh UI ถ้าต้องการ)
+    // 8) แจ้งลูกค้าผ่าน SSE (realtime update)
+    try {
+      await publish(item.order_id);
+    } catch (e) {
+      console.warn("publish failed (admin item cancel):", e?.message || e);
+    }
+
+    // 9) ส่งข้อมูลกลับ (ให้ frontend เอาไปใช้ refresh UI ถ้าต้องการ)
     const [[updated]] = await pool.query(
       `
       SELECT 
@@ -348,7 +356,14 @@ const updateOrderStatusHandler = async (req, res) => {
         { from: current, to: next, by: "admin" }
       );
     } catch (e) {
-      console.warn("safeLogActivity failed:", e?.message || e);
+      console.warn("safeLogActivity failed (best-effort):", e?.message || e);
+    }
+
+    // แจ้งลูกค้าผ่าน SSE ว่ามีการเปลี่ยนสถานะออเดอร์
+    try {
+      await publish(id);
+    } catch (e) {
+      console.warn("publish failed (admin order status change):", e?.message || e);
     }
 
     return res.json({ ok: true, order_id: id, from: current, to: next });
