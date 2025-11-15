@@ -3,10 +3,23 @@ import express from "express";
 import pool from "../config/db.js";
 
 // ===== SSE: Realtime Menu Stream =====
-const menuClients = [];
-function menuBroadcast(payload) {
+const menuSubscribers = new Set();
+
+/**
+ * Broadcast a menu change event to all connected SSE clients.
+ * This is imported and called from admin.menu.js after create/update/delete.
+ */
+export function pushMenuEvent(payload = { type: "menu_changed", ts: Date.now() }) {
   const data = JSON.stringify(payload);
-  menuClients.forEach((res) => res.write(`data: ${data}\n\n`));
+  for (const res of menuSubscribers) {
+    try {
+      // Named event so frontend can listen specifically for "menu"
+      res.write(`event: menu\n`);
+      res.write(`data: ${data}\n\n`);
+    } catch (err) {
+      console.error("pushMenuEvent write error:", err);
+    }
+  }
 }
 
 const router = express.Router();
@@ -24,7 +37,6 @@ router.get("/", async (req, res) => {
          ORDER BY f.food_name ASC`,
         [cat]
       );
-      menuBroadcast({ type: "menu_updated" });
       return res.json(rows);
     } else {
       const [rows] = await pool.query(
@@ -34,7 +46,6 @@ router.get("/", async (req, res) => {
          WHERE f.is_active = 1
          ORDER BY c.category_name, f.food_name ASC`
       );
-      menuBroadcast({ type: "menu_updated" });
       return res.json(rows);
     }
   } catch (e) {
@@ -67,13 +78,34 @@ router.get("/stream", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
+  // Optional: hint to browser how often to retry on disconnect
   res.write("retry: 1000\n\n");
 
-  menuClients.push(res);
+  // Flush headers immediately if supported
+  if (res.flushHeaders) {
+    res.flushHeaders();
+  }
 
+  // Register this connection
+  menuSubscribers.add(res);
+
+  // Initial comment to confirm connection
+  res.write(`: connected to /api/menu/stream at ${new Date().toISOString()}\n\n`);
+
+  // Heartbeat every 15s to keep proxies from closing idle connections
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded) {
+      clearInterval(heartbeat);
+      menuSubscribers.delete(res);
+      return;
+    }
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  }, 15000);
+
+  // Cleanup when client disconnects
   req.on("close", () => {
-    const idx = menuClients.indexOf(res);
-    if (idx >= 0) menuClients.splice(idx, 1);
+    clearInterval(heartbeat);
+    menuSubscribers.delete(res);
   });
 });
 

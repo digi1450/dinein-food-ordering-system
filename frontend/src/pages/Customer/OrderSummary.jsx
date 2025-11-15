@@ -496,14 +496,19 @@ const computePastOrders = (list, currentId) => {
         const payload = JSON.parse(evt.data);
         setData(payload);
         setLastAt(new Date());
-      } catch (_) {}
-    };
-    es.onerror = () => {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
+      } catch (err) {
+        console.warn("[OrderSummary] Failed to parse SSE payload:", err);
       }
     };
+
+    // IMPORTANT:
+    // Do NOT close the EventSource on transient errors. Let the browser auto-reconnect.
+    es.onerror = (evt) => {
+      console.warn("[OrderSummary] SSE error (order stream). Browser will try to reconnect.", evt);
+      // We intentionally do NOT call es.close() here so that automatic reconnection keeps working.
+      // If the stream is permanently closed (e.g. 4xx), the browser will stop reconnecting anyway.
+    };
+
     return () => {
       if (esRef.current) {
         esRef.current.close();

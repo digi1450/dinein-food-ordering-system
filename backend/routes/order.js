@@ -1,6 +1,7 @@
 // backend/routes/order.js
 import { Router } from "express";
 import pool from "../config/db.js";
+import { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -211,7 +212,7 @@ async function publish(orderId) {
    GET /api/orders/stream-all  → SSE for admin feed
    (ต้องมาก่อน /:id)
 ---------------------------------------------- */
-router.get("/stream-all", async (req, res) => {
+router.get("/stream-all", requireAdmin, async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");

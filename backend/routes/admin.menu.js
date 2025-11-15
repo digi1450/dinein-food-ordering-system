@@ -3,6 +3,7 @@ import { Router } from "express";
 import pool from "../config/db.js";
 import { requireAdmin } from "../middleware/auth.js";
 import safeLogActivity from "../utils/safeLogActivity.js";
+import { pushMenuEvent } from "./menu.js";
 
 const router = Router();
 
@@ -108,7 +109,12 @@ router.post("/", requireAdmin, async (req, res) => {
       price: prc,
       category_id: catId,
     });
-
+    // broadcast: menu changed (create)
+    try {
+      pushMenuEvent({ type: "menu_updated", op: "create", food_id: r.insertId });
+    } catch (broadcastErr) {
+      console.error("pushMenuEvent(create) error:", broadcastErr);
+    }
     res.status(201).json({ food_id: r.insertId });
   } catch (e) {
     console.error("POST /admin/menu error:", e);
@@ -196,6 +202,12 @@ router.patch("/:food_id", requireAdmin, async (req, res) => {
     }
 
     await safeLogActivity(req.user.user_id, "food", foodId, "update", payload);
+    // broadcast: menu changed (update)
+    try {
+      pushMenuEvent({ type: "menu_updated", op: "update", food_id: foodId });
+    } catch (broadcastErr) {
+      console.error("pushMenuEvent(update) error:", broadcastErr);
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error("PATCH /admin/menu/:food_id error:", e);
@@ -228,6 +240,12 @@ router.delete("/:food_id", requireAdmin, async (req, res) => {
         );
         if (upd.affectedRows > 0) {
           await safeLogActivity(req.user.user_id, "food", foodId, "soft_delete", { reason: "FK protected" });
+          // broadcast: menu changed (soft delete)
+          try {
+            pushMenuEvent({ type: "menu_updated", op: "soft_delete", food_id: foodId });
+          } catch (broadcastErr) {
+            console.error("pushMenuEvent(soft_delete) error:", broadcastErr);
+          }
           return res.json({ ok: true, softDeleted: true });
         }
         // if cannot soft delete for some reason, return conflict
@@ -244,6 +262,12 @@ router.delete("/:food_id", requireAdmin, async (req, res) => {
     }
 
     await safeLogActivity(req.user.user_id, "food", foodId, "delete");
+    // broadcast: menu changed (hard delete)
+    try {
+      pushMenuEvent({ type: "menu_updated", op: "delete", food_id: foodId });
+    } catch (broadcastErr) {
+      console.error("pushMenuEvent(delete) error:", broadcastErr);
+    }
     return res.json({ ok: true });
   } catch (e) {
     console.error("DELETE /admin/menu/:food_id error:", e);

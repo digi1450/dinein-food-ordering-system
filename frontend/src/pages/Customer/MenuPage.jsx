@@ -58,8 +58,8 @@ export default function MenuPage() {
     };
 
     es.onerror = (err) => {
-      console.warn("[MenuPage] orders EventSource error, closing stream:", err);
-      es.close();
+      // อย่าปิด stream เอง ปล่อยให้ EventSource ทำ auto-reconnect
+      console.warn("[MenuPage] orders EventSource error:", err);
     };
 
     return () => {
@@ -109,6 +109,75 @@ export default function MenuPage() {
     [catId]
   );
 
+  const handleMenuEvent = useCallback(
+    (evt) => {
+      if (!evt?.data) return;
+      try {
+        const payload = JSON.parse(evt.data);
+        if (payload && payload.type === "menu_updated") {
+          // มีเมนูเปลี่ยนจริง ๆ → โหลดเมนูใหม่แบบ background (ไม่โชว์ skeleton)
+          loadMenu({ background: true });
+        }
+      } catch (e) {
+        console.warn("[MenuPage] menu EventSource bad payload:", e, evt?.data);
+        // fallback: ถึง parse พัง ก็ลองรีโหลดเมนูแบบ background ไว้ก่อน
+        loadMenu({ background: true });
+      }
+    },
+    [loadMenu]
+  );
+
+  // Realtime: subscribe to menu updates via SSE and refetch when something changes
+  useEffect(() => {
+    // ถ้า browser ไม่รองรับ EventSource ก็ไม่ต้องทำอะไร ปล่อยให้ใช้โหลดครั้งเดียว
+    if (typeof window === "undefined" || typeof EventSource === "undefined") {
+      return;
+    }
+
+    // ปิดของเก่าถ้ายังเปิดอยู่
+    if (menuStreamRef.current) {
+      try {
+        menuStreamRef.current.removeEventListener("menu", handleMenuEvent);
+      } catch (_) {
+        // ignore
+      }
+      menuStreamRef.current.close();
+      menuStreamRef.current = null;
+    }
+
+    const streamUrl = `${API_BASE}/menu/stream`;
+    let es;
+    try {
+      es = new EventSource(streamUrl, { withCredentials: false });
+    } catch (err) {
+      console.error("[MenuPage] EventSource init error:", err);
+      return;
+    }
+
+    menuStreamRef.current = es;
+
+    // ใช้ named event "menu" ให้ตรงกับฝั่ง backend (`event: menu`)
+    es.addEventListener("menu", handleMenuEvent);
+
+    es.onerror = (err) => {
+      // ไม่ปิด stream เพื่อให้ EventSource auto-reconnect เองถ้าเน็ตหลุดหรือเซิร์ฟเวอร์รีสตาร์ต
+      console.warn("[MenuPage] menu EventSource error:", err);
+    };
+
+    // cleanup ตอน unmount หรือ dependency เปลี่ยน
+    return () => {
+      if (menuStreamRef.current) {
+        try {
+          menuStreamRef.current.removeEventListener("menu", handleMenuEvent);
+        } catch (_) {
+          // ignore
+        }
+        menuStreamRef.current.close();
+        menuStreamRef.current = null;
+      }
+    };
+  }, [handleMenuEvent]);
+
   useEffect(() => {
     if (!tableId) nav("/", { replace: true });
   }, [tableId, nav]);
@@ -136,54 +205,6 @@ export default function MenuPage() {
   // โหลดอาหารตามหมวด (ครั้งแรก + เมื่อเปลี่ยนหมวด)
   useEffect(() => {
     loadMenu();
-  }, [loadMenu]);
-
-  // Realtime: subscribe to menu updates via SSE and refetch when something changes
-  useEffect(() => {
-    // ถ้า browser ไม่รองรับ EventSource ก็ไม่ต้องทำอะไร ปล่อยให้ใช้โหลดครั้งเดียว
-    if (typeof window === "undefined" || typeof EventSource === "undefined") {
-      return;
-    }
-
-    // ปิดของเก่าถ้ายังเปิดอยู่
-    if (menuStreamRef.current) {
-      menuStreamRef.current.close();
-      menuStreamRef.current = null;
-    }
-
-    const streamUrl = `${API_BASE}/menu/stream`;
-    let es;
-    try {
-      es = new EventSource(streamUrl, { withCredentials: false });
-    } catch (err) {
-      console.error("[MenuPage] EventSource init error:", err);
-      return;
-    }
-
-    menuStreamRef.current = es;
-
-    es.onmessage = (evt) => {
-      // ถ้ามี payload แบบ ping จาก backend และคุณต้องการกรอง ก็เช็กเพิ่มตรงนี้ได้
-      // เช่น: if (evt.data === "ping") return;
-      // โหลดเมนูใหม่แบบ background (ไม่โชว์ skeleton)
-      loadMenu({ background: true });
-    };
-
-    es.onerror = (err) => {
-      console.warn("[MenuPage] EventSource error, closing stream:", err);
-      if (menuStreamRef.current) {
-        menuStreamRef.current.close();
-        menuStreamRef.current = null;
-      }
-    };
-
-    // cleanup ตอน unmount หรือ dependency เปลี่ยน
-    return () => {
-      if (menuStreamRef.current) {
-        menuStreamRef.current.close();
-        menuStreamRef.current = null;
-      }
-    };
   }, [loadMenu]);
 
   useEffect(() => {

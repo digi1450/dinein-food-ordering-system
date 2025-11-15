@@ -380,8 +380,9 @@ export default function AdminDashboard() {
       };
 
       es.onerror = (err) => {
+        // อย่าปิด stream ใน onerror เพื่อให้ EventSource auto-reconnect เอง
         console.error("AdminDashboard SSE error:", err);
-        if (es) es.close();
+        // ถ้าต้องการ logic เพิ่มเช่นนับจำนวน error ค่อยเพิ่มทีหลังได้
       };
     } catch (err) {
       console.error("AdminDashboard SSE init error:", err);
