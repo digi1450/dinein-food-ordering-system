@@ -74,19 +74,32 @@ export default function MenuPage() {
   const loadMenu = useCallback(
     async ({ background = false } = {}) => {
       if (!background) {
+        // foreground load: show skeleton and clear old food list to avoid ghost cards
         setLoading(true);
+        setFoods([]);
       }
       setErr(null);
       try {
         const url = catId
           ? `${API_BASE}/menu?cat=${encodeURIComponent(catId)}`
           : `${API_BASE}/menu`;
-        const res = await fetch(url);
+
+        // Add timeout + abort support so the page doesn't hang forever if the backend is slow
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s
+
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!res.ok) throw new Error("Failed to load menu");
         const data = await res.json();
         setFoods(Array.isArray(data) ? data : []);
       } catch (e) {
-        setErr(e.message || "Failed to load menu");
+        if (e.name === "AbortError") {
+          setErr("Request timeout, please try again.");
+        } else {
+          setErr(e.message || "Failed to load menu");
+        }
       } finally {
         if (!background) {
           setLoading(false);

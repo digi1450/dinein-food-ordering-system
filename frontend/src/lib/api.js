@@ -165,6 +165,7 @@ export const api = {
   patch: (p, body, o) => apiFetch(p, { ...o, method: "PATCH", body }),
   put: (p, body, o) => apiFetch(p, { ...o, method: "PUT", body }),
   del: (p, o) => apiFetch(p, { ...o, method: "DELETE" }),
+  delete: (p, o) => apiFetch(p, { ...o, method: "DELETE" }),
 
   // namespace สำหรับหลังบ้าน (บังคับ auth + prefix)
   admin: {
@@ -173,6 +174,7 @@ export const api = {
     patch: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PATCH", body, auth: true }),
     put: (p, body, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "PUT", body, auth: true }),
     del: (p, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "DELETE", auth: true }),
+    delete: (p, o) => apiFetch(`/admin${p.startsWith("/") ? "" : "/"}${p}`, { ...o, method: "DELETE", auth: true }),
   },
 
   adminOrders: {
