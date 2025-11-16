@@ -16,9 +16,11 @@ import adminBillingRouter from "./routes/admin.billing.js";
 import adminActivityRouter from "./routes/admin.activity.js";
 
 const app = express();
-app.use(cors({
-  origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
-}));
+app.use(
+  cors({
+    origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
+  })
+);
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
@@ -39,5 +41,6 @@ app.use("/api/billing", billingRouter);
 
 app.get("/", (_req, res) => res.send("Food POS API running"));
 
-console.log("Environment loaded, PORT:", process.env.PORT);
-app.listen(process.env.PORT, () => console.log("API on :", process.env.PORT));
+const PORT = Number(process.env.PORT) || 5050;
+console.log("Environment loaded, PORT:", PORT);
+app.listen(PORT, () => console.log("API on :", PORT));
