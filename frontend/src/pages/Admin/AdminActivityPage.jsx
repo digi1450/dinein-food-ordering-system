@@ -148,20 +148,25 @@ export default function AdminActivityPage() {
   };
 
   return (
-    <div className="bg-slate-50 rounded-lg">
-      <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="bg-white/5 border border-white/10 rounded-2xl">
+      <div className="max-w-6xl mx-auto px-4 py-6 text-slate-100">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-semibold text-slate-900">Admin Activity</h1>
+          <div>
+            <h1 className="text-xl font-semibold text-slate-50">Admin Activity</h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Live audit log of admin actions across orders, bills, and menu.
+            </p>
+          </div>
           <button
             onClick={handleRefresh}
-            className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-sm text-slate-800 hover:bg-slate-50"
+            className="px-3 py-1.5 rounded-md border border-white/20 bg-white/5 text-sm text-slate-50 hover:bg-white/10"
           >
             Refresh
           </button>
         </div>
 
         {/* Filters */}
-        <div className="mb-4 flex flex-wrap gap-2 items-center">
+        <div className="mb-3 flex flex-wrap gap-2 items-center">
           <input
             value={q}
             onChange={(e) => {
@@ -169,7 +174,7 @@ export default function AdminActivityPage() {
               setQ(e.target.value);
             }}
             placeholder="Search details..."
-            className="px-3 py-1.5 text-sm border border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 min-w-[220px]"
+            className="px-3 py-1.5 text-sm border border-white/15 rounded-md bg-black/40 text-slate-50 placeholder:text-slate-500 min-w-[220px] focus:outline-none focus:ring-1 focus:ring-white/40"
           />
           <select
             value={entityType}
@@ -177,7 +182,7 @@ export default function AdminActivityPage() {
               setPage(1);
               setEntityType(e.target.value);
             }}
-            className="px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white text-slate-900"
+            className="px-2 py-1.5 text-sm border border-white/15 rounded-md bg-black/40 text-slate-50 focus:outline-none focus:ring-1 focus:ring-white/40"
           >
             <option value="">All entities</option>
             <option value="food">Food</option>
@@ -194,7 +199,7 @@ export default function AdminActivityPage() {
               setPage(1);
               setAction(e.target.value);
             }}
-            className="px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white text-slate-900"
+            className="px-2 py-1.5 text-sm border border-white/15 rounded-md bg-black/40 text-slate-50 focus:outline-none focus:ring-1 focus:ring-white/40"
           >
             <option value="">All actions</option>
             <option value="create">Create</option>
@@ -210,7 +215,7 @@ export default function AdminActivityPage() {
               setPage(1);
               setDateRange(e.target.value);
             }}
-            className="px-2 py-1.5 text-sm border border-slate-300 rounded-md bg-white text-slate-900"
+            className="px-2 py-1.5 text-sm border border-white/15 rounded-md bg-black/40 text-slate-50 focus:outline-none focus:ring-1 focus:ring-white/40"
           >
             <option value="1d">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
@@ -219,28 +224,40 @@ export default function AdminActivityPage() {
           </select>
         </div>
 
+        {/* Status bar */}
+        <div className="mb-3 flex items-center justify-between text-xs text-slate-400">
+          <span>{activities.length} activities on this page</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            Live updates
+          </span>
+        </div>
+
         {err && (
-          <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          <div className="mb-4 text-sm text-red-300 bg-red-500/10 border border-red-500/40 rounded-md px-3 py-2">
             {err}
           </div>
         )}
 
-        <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+        <div className="overflow-x-auto border border-white/10 rounded-xl bg-black/40">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+            <thead className="bg-white/5 border-b border-white/10">
               <tr>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Time</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-24">Admin</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-48">Entity</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600 w-32">Action</th>
-                <th className="px-3 py-2 text-left font-medium text-slate-600">Details</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300">Time</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300 w-24">Admin</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300 w-48">Entity</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300 w-32">Action</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-300">Details</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td className="px-3 py-4 text-center text-slate-500" colSpan={5}>
-                    Loading...
+                  <td
+                    className="px-3 py-4 text-center text-slate-400 animate-pulse"
+                    colSpan={5}
+                  >
+                    Loading activity...
                   </td>
                 </tr>
               ) : activities.length === 0 ? (
@@ -251,39 +268,42 @@ export default function AdminActivityPage() {
                 </tr>
               ) : (
                 activities.map((a) => (
-                  <tr key={a.activity_id} className="border-t border-slate-200 hover:bg-slate-50">
-                    <td className="px-3 py-2 align-top text-slate-700">
+                  <tr
+                    key={a.activity_id}
+                    className="border-t border-white/5 hover:bg-white/5 transition-colors"
+                  >
+                    <td className="px-3 py-2 align-top text-slate-100">
                       {formatDateTime(a.created_at)}
                     </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
+                    <td className="px-3 py-2 align-top text-slate-100">
                       {a.username || `#${a.user_id || "-"}`}
                     </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
+                    <td className="px-3 py-2 align-top text-slate-100">
                       <div className="font-medium">{a.entity_type}</div>
                       {a.entity_id != null && (
-                        <div className="text-xs text-slate-500">ID: {a.entity_id}</div>
+                        <div className="text-xs text-slate-400">ID: {a.entity_id}</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
+                    <td className="px-3 py-2 align-top text-slate-100">
                       <span
                         className={
                           "inline-flex items-center px-2 py-0.5 rounded-full text-xs border " +
                           (a.action === "create"
-                            ? "bg-green-100 text-green-700 border-green-200"
+                            ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
                             : a.action === "update"
-                            ? "bg-blue-100 text-blue-700 border-blue-200"
+                            ? "bg-sky-500/15 text-sky-300 border-sky-500/40"
                             : a.action === "delete"
-                            ? "bg-red-100 text-red-700 border-red-200"
+                            ? "bg-red-500/15 text-red-300 border-red-500/40"
                             : a.action === "status_change"
-                            ? "bg-amber-100 text-amber-700 border-amber-200"
-                            : "bg-slate-100 text-slate-700 border-slate-300")
+                            ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+                            : "bg-slate-500/15 text-slate-200 border-slate-500/40")
                         }
                       >
                         {a.action}
                       </span>
                     </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
-                      <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 rounded-md px-2 py-1 max-h-32 overflow-auto">
+                    <td className="px-3 py-2 align-top text-slate-100">
+                      <pre className="text-xs whitespace-pre-wrap break-words bg-black/40 rounded-md px-2 py-1 max-h-32 overflow-auto border border-white/5">
                         {typeof a.details === "string"
                           ? a.details
                           : JSON.stringify(a.details, null, 2)}
@@ -297,7 +317,7 @@ export default function AdminActivityPage() {
         </div>
 
         {/* Pagination */}
-        <div className="mt-3 flex items-center justify-between text-xs text-slate-600">
+        <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
           <div>
             Page {totalPages === 0 ? 0 : page} / {totalPages}
           </div>
@@ -305,14 +325,14 @@ export default function AdminActivityPage() {
             <button
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="px-2 py-1 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+              className="px-2 py-1 border border-white/20 rounded-md bg-transparent hover:bg-white/10 disabled:opacity-40"
             >
               Prev
             </button>
             <button
               disabled={totalPages === 0 || page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
-              className="px-2 py-1 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+              className="px-2 py-1 border border-white/20 rounded-md bg-transparent hover:bg-white/10 disabled:opacity-40"
             >
               Next
             </button>

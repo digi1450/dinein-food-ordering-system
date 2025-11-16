@@ -67,125 +67,154 @@ export default function SelectTablePage() {
   };
 
   return (
-    <div
-      className="
-        min-h-screen w-full text-slate-900
-        bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_600px_at_120%_10%,#ffd9e0,transparent),linear-gradient(180deg,#fff,#ffe6c4)]
-      "
-    >
+    <div className="min-h-screen w-full text-slate-900 bg-slate-50">
       {/* Header */}
-      <header className="sticky top-0 z-10 backdrop-blur bg-white/70 border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="font-semibold tracking-wide">Dine-in Ordering</div>
+      <header className="sticky top-0 z-20 bg-[#1d4ed8] text-white shadow-md">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-2xl bg-sky-400 flex items-center justify-center text-base font-semibold shadow-sm">
+              🍽️
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-sky-100/90">
+                Select Table
+              </div>
+              <div className="text-sm md:text-base font-semibold leading-tight">
+                Choose your table to start ordering.
+              </div>
+            </div>
+          </div>
           <a
             href="/admin/login"
-            className="text-sm text-slate-700 hover:text-slate-900"
+            className="inline-flex items-center gap-1 rounded-full bg-white/20 border border-white/30 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/30 transition"
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-white" />
             Admin
           </a>
         </div>
       </header>
 
       {/* Main */}
-      <main className="max-w-6xl mx-auto px-6 py-10">
-        <h1 className="text-5xl md:text-6xl font-extrabold text-center tracking-tight mb-8">
-          Select a Table
-        </h1>
-
-        {/* Action row */}
-        <div className="flex justify-end mb-6">
-          <button
-            onClick={loadTables}
-            className="inline-flex items-center rounded-xl px-5 py-2 text-white font-semibold shadow-md hover:shadow-lg active:translate-y-[1px] bg-teal-500 hover:bg-teal-600"
-            title="Refresh"
-          >
-            Refresh
-          </button>
-        </div>
-
-        {/* Loading */}
-        {loading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-32 rounded-2xl bg-white/80 shadow-sm animate-pulse"
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Error */}
-        {err && (
-          <div className="space-y-3">
-            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-              {err}
+      <main className="max-w-6xl mx-auto px-4 md:px-6 py-8 md:py-10">
+        <div className="bg-white/90 border border-slate-200/80 rounded-3xl shadow-xl shadow-slate-200/60 px-4 py-6 md:px-8 md:py-8 backdrop-blur-sm">
+          <div className="text-center mb-6">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">
+              Select your table
+            </h1>
+            <p className="mt-2 text-sm md:text-base text-slate-500">
+              Tap your table number to start browsing the menu.
             </p>
+            <div className="mt-3 flex justify-center gap-3">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Available
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                <span className="h-2 w-2 rounded-full bg-rose-500" />
+                Occupied
+              </div>
+            </div>
+          </div>
+
+          {/* Action row */}
+          <div className="flex justify-end mb-6">
             <button
               onClick={loadTables}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-white bg-[#1d4ed8] hover:bg-[#1e40af] shadow-sm shadow-sky-200 transition"
+              title="Refresh"
             >
-              ↻ Retry
+              <span className="text-base">↻</span>
+              Refresh
             </button>
           </div>
-        )}
 
-        {/* Tables */}
-        {!loading && !err && (
-          <div className="grid grid-cols-3 gap-14 justify-items-center">
-            {tables.map((t) => {
-              const statusKey = String(t.status).trim().toLowerCase();
-              return (
+          {/* Loading */}
+          {loading && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-28 md:h-32 rounded-2xl bg-slate-100 border border-slate-200 shadow-sm animate-pulse"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Error */}
+          {err && (
+            <div className="space-y-3">
+              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700 text-sm">
+                {err}
+              </p>
+              <button
+                onClick={loadTables}
+                className="rounded-full px-4 py-2 text-sm font-medium text-white bg-[#1d4ed8] hover:bg-[#1e40af] shadow-sm transition"
+              >
+                <span className="text-base">↻</span>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Tables */}
+          {!loading && !err && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+              {tables.map((t) => {
+                const statusKey = String(t.status).trim().toLowerCase();
+                const isOccupied = statusKey === "occupied";
+
+                return (
                   <div
                     role="button"
                     tabIndex={0}
                     key={t.table_id}
                     onClick={() => handleSelect(t.table_id)}
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleSelect(t.table_id)}
-                    className="relative cursor-pointer
-                               w-[300px] h-[190px] md:w-[320px] md:h-[200px]
-                               bg-white text-slate-900 rounded-[26px] overflow-hidden
-                               shadow-[0_8px_16px_rgba(0,0,0,0.08)] hover:shadow-[0_12px_20px_rgba(0,0,0,0.12)]
-                               ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1
-                               outline-none isolation-isolate"
+                    onKeyDown={(e) =>
+                      (e.key === "Enter" || e.key === " ") &&
+                      handleSelect(t.table_id)
+                    }
+                    className="relative cursor-pointer group w-full h-[140px] md:h-[150px] bg-white text-slate-800 rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-lg hover:shadow-sky-200 hover:-translate-y-[2px] transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-sky-50"
                   >
+                    <div className="flex flex-col justify-between h-full px-4 py-3">
+                      <div className="flex items-start justify-between">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          Table
+                        </div>
+                        <span
+                          className={[
+                            "inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium border",
+                            isOccupied
+                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200",
+                          ].join(" ")}
+                        >
+                          <span
+                            className={[
+                              "mr-1 h-1.5 w-1.5 rounded-full",
+                              isOccupied ? "bg-rose-500" : "bg-emerald-500",
+                            ].join(" ")}
+                          />
+                          {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
+                        </span>
+                      </div>
 
-                  {/* Content */}
-                  <div className="relative z-10 flex flex-col items-center justify-center h-full text-slate-900">
-                    {/* Title */}
-                    <div className="text-[36px] md:text-[42px] leading-none font-extrabold tracking-tight text-slate-900 mb-4">
-                      Table {String(t.table_label).replace(/^T/i, "")}
+                      <div className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight text-sky-600">
+                        {String(t.table_label).replace(/^T/i, "")}
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                        <span>Tap to continue</span>
+                        <span className="opacity-70 group-hover:translate-x-0.5 transition-transform">
+                          →
+                        </span>
+                      </div>
                     </div>
-
-                    {/* Status pill */}
-                    <span
-                      className={`inline-flex items-center justify-center
-                                  px-6 md:px-7 py-2.5 md:py-3
-                                  rounded-full text-[18px] md:text-[20px] font-semibold
-                                  shadow-[0_4px_8px_rgba(0,0,0,0.08)] text-white`}
-                      style={{ backgroundColor: statusKey === 'occupied' ? '#ff8fab' : '#22c55e' }}
-                    >
-                      {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
-                    </span>
-
-                    {/* Colored bottom accent bar (clips to rounded corners) */}
-                    <div
-                      className={`absolute bottom-0 left-0 right-0 h-[12px] bg-gradient-to-r
-                                  ${statusKey === 'occupied'
-                                    ? "from-pink-400 via-rose-400 to-orange-400"
-                                    : "from-emerald-400 via-green-400 to-teal-400"}`}
-                    />
-
-                    {/* Soft drop shadow below card */}
-                    <div
-                      aria-hidden
-                      className="absolute -bottom-3 left-8 right-8 h-3 rounded-full bg-black/10 blur-[4px]"/>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

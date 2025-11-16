@@ -61,67 +61,71 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="relative min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-[#0A1A2F] text-white flex items-center justify-center px-6 relative">
+      {/* Back link */}
       <a
         href="/"
-        className="absolute top-4 right-4 text-sm opacity-80 hover:opacity-100 underline"
+        className="absolute top-4 right-4 text-xs md:text-sm opacity-70 hover:opacity-100 underline"
       >
         Back to Tables
       </a>
 
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="bg-white/10 backdrop-blur p-8 rounded-lg shadow-lg w-full max-w-md">
-          <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm mb-1">Username</label>
-              <input
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-700 focus:border-white outline-none"
-                placeholder="Enter username"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm mb-1">Password</label>
-              <div>
-                <input
-                  type={showPw ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-gray-800 border border-gray-700 focus:border-white outline-none"
-                  placeholder="Enter password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="mt-2 text-xs px-3 py-1 border rounded hover:bg-white/10"
-                >
-                  {showPw ? "Hide" : "Show"}
-                </button>
-              </div>
-            </div>
-
-            {error && <div className="text-red-400 text-sm">{error}</div>}
-
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              className="w-full bg-white text-black py-2 rounded font-semibold hover:bg-gray-200 transition disabled:opacity-60"
-            >
-              {loading ? "Signing in..." : "Login"}
-            </button>
-
-            <p className="text-xs opacity-70 text-center mt-2">
-              API: {API_BASE.replace(/^https?:\/\//, "")}
-            </p>
-          </div>
+      <div className="w-full max-w-md bg-[#102341] border border-blue-400/10 rounded-2xl p-8 shadow-xl">
+        <div className="mb-6 text-center">
+          <p className="text-xs uppercase tracking-[0.25em] text-zinc-400 mb-2">Admin</p>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-wide">Dashboard Login</h1>
         </div>
+
+        <form className="space-y-5" onSubmit={handleLogin}>
+          <div>
+            <input
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-slate-300 focus:ring-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 transition"
+              placeholder="Username"
+            />
+          </div>
+
+          <div>
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 focus:border-slate-300 focus:ring-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 transition pr-16"
+                placeholder="Password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] px-2 py-1 rounded-full border border-blue-600/40 hover:bg-white/10"
+              >
+                {showPw ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-blue-300 text-xs md:text-sm text-center bg-blue-950/40 border border-blue-400/40 rounded-md px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 rounded-lg font-semibold bg-blue-500 text-white hover:bg-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            {loading ? "Signing in..." : "Login"}
+          </button>
+
+          <p className="text-center text-[11px] text-zinc-500 mt-2">
+            API: {API_BASE.replace(/^https?:\/\//, "")}
+          </p>
+        </form>
       </div>
     </div>
   );

@@ -590,45 +590,68 @@ const computePastOrders = (list, currentId) => {
   ]);
 
   return (
-    <div
-      className="min-h-screen w-full text-slate-900 bg-[radial-gradient(900px_600px_at_0%_-10%,#e8f0ff,transparent),radial-gradient(900px_600px_at_100%_-10%,#ffe6eb,transparent),linear-gradient(180deg,#f9fbff,#ffe9f0)]">
-      <div className="max-w-3xl mx-auto px-8 md:px-12 py-12">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight">Order Summary</h1>
-          <p className="text-sm text-slate-600 mt-2">
-            {lastAt ? `Last updated: ${lastAt.toLocaleTimeString()}` : "Last updated: —"}
-          </p>
-          <p className="text-base font-medium text-slate-700 mt-1">
-            {`Order #${orderNo} - Table ${tableNo}`}
-          </p>
+    <div className="min-h-screen w-full text-slate-900 bg-slate-100">
+      {/* Top brand bar (blue) */}
+      <header className="sticky top-0 z-20 bg-[#1d4ed8] text-white shadow-md">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-2xl bg-sky-400 flex items-center justify-center text-base font-semibold shadow-sm">
+              🧾
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-sky-100/90">
+                Order Summary
+              </div>
+              <div className="text-sm md:text-base font-semibold leading-tight">
+                {`Order #${orderNo || "—"} · Table ${tableNo || "—"}`}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-sky-100/80">
+              Last updated
+            </div>
+            <div className="text-xs font-medium">
+              {lastAt ? lastAt.toLocaleTimeString() : "—"}
+            </div>
+          </div>
         </div>
+      </header>
 
+      {/* Body */}
+      <main className="max-w-3xl mx-auto px-4 md:px-6 py-8 md:py-10">
+        {/* Error banners */}
         {error && (
-          <div className="mt-4 rounded-xl bg-red-50 text-red-700 ring-1 ring-red-200 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-2xl bg-red-50 text-red-700 ring-1 ring-red-200 px-4 py-3 text-sm">
             {error}
           </div>
         )}
         {cancelErr && (
-          <div className="mt-4 rounded-xl bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-4 py-3 text-sm">
+          <div className="mb-4 rounded-2xl bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-4 py-3 text-sm">
             {cancelErr}
           </div>
         )}
 
+        {/* Loading */}
         {loading ? (
-          <div className="p-6 bg-white bg-opacity-80 rounded-2xl shadow">Loading...</div>
+          <div className="p-6 bg-white rounded-3xl shadow-xl ring-1 ring-slate-200/80 flex flex-col items-center text-sm text-slate-600">
+            <div className="font-medium text-slate-700">Loading order…</div>
+            <div className="mt-3 h-1.5 w-28 rounded-full bg-gradient-to-r from-sky-400 via-sky-500 to-indigo-500 animate-pulse" />
+          </div>
         ) : !data ? (
-          <div className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto text-center">
+          // No active orders
+          <div className="px-6 md:px-10 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-slate-200/80 max-w-[680px] mx-auto text-center">
             <h2 className="text-xl font-semibold text-slate-900">
               No active orders for this table
             </h2>
-            <p className="text-slate-500 mt-2">
-              Table {tableIdParam || tableIdResolved || "—"} has no active orders yet. Please start a new order from the menu.
+            <p className="text-slate-500 mt-2 text-sm md:text-base">
+              Table {tableIdParam || tableIdResolved || "—"} has no active orders yet.
+              Please start a new order from the menu.
             </p>
             <div className="mt-7 flex justify-center">
               <Link
                 to={`/home?table=${tableIdResolved ?? tableIdParam ?? ""}`}
-                className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-black/5 hover:bg-slate-200 transition"
+                className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-slate-200 hover:bg-slate-200 transition"
               >
                 Back to Menu
               </Link>
@@ -636,29 +659,38 @@ const computePastOrders = (list, currentId) => {
           </div>
         ) : (
           <>
-            {/* Show completed as a closed card; for cancelled, still show the order with a clear banner */}
+            {/* Completed state */}
             {String(data.status).toLowerCase() === "completed" ? (
-              <div className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto text-center">
-                <h2 className="text-xl font-semibold text-slate-900">Order Completed</h2>
-                <p className="text-slate-500 mt-2">This table has already checked out. Please start a new order from the menu.</p>
+              <div className="px-6 md:px-10 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-slate-200/80 max-w-[680px] mx-auto text-center">
+                <h2 className="text-xl font-semibold text-slate-900">
+                  Order Completed
+                </h2>
+                <p className="text-slate-500 mt-2 text-sm md:text-base">
+                  This table has already checked out. Please start a new order from the menu.
+                </p>
                 <div className="mt-7 flex justify-center">
                   <Link
                     to={`/home?table=${tableIdResolved ?? ""}`}
-                    className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-black/5 hover:bg-slate-200 transition"
+                    className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-slate-200 hover:bg-slate-200 transition"
                   >
                     Back to Menu
                   </Link>
                 </div>
               </div>
             ) : (
-              <div
-                className="px-8 md:px-12 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-black/5 max-w-[680px] mx-auto"
-              >
+              // Active / cancelled order card
+              <div className="px-6 md:px-10 py-10 rounded-[28px] bg-white shadow-[0_20px_60px_-20px_rgba(0,0,0,.2)] ring-1 ring-slate-200/80 max-w-[680px] mx-auto">
                 {String(data.status).toLowerCase() === "cancelled" && (
-                  <div className="mb-4 text-center text-red-500 font-semibold text-lg">Order Cancelled</div>
+                  <div className="mb-4 text-center text-red-500 font-semibold text-base">
+                    Order Cancelled
+                  </div>
                 )}
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-500">Current status</p>
+
+                {/* Status row */}
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-500">
+                    Current status
+                  </p>
                   <span
                     className={`inline-flex items-center justify-center rounded-full px-5 py-2 min-h-[40px] min-w-[96px] leading-none text-sm font-semibold uppercase ${statusStyle(statusRaw)}`}
                   >
@@ -666,19 +698,34 @@ const computePastOrders = (list, currentId) => {
                   </span>
                 </div>
 
-                <h2 className="text-xl font-semibold text-slate-900 mt-4">Your order has been placed successfully!</h2>
-                <p className="text-sm text-slate-500 mt-2">We'll keep this page updated as it progresses.</p>
+                <h2 className="text-xl font-semibold text-slate-900 mt-4">
+                  Your order has been placed successfully!
+                </h2>
+                <p className="text-sm text-slate-500 mt-2">
+                  We&apos;ll keep this page updated as it progresses.
+                </p>
+
+                {/* Customer meta */}
                 {(customerName || customerPhone || customerNote) && (
-                  <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-black/5">
+                  <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200/80">
                     <div className="space-y-1">
                       {customerName && (
-                        <div><span className="font-medium text-slate-700">Name:</span> {customerName}</div>
+                        <div>
+                          <span className="font-medium text-slate-700">Name:</span>{" "}
+                          {customerName}
+                        </div>
                       )}
                       {customerPhone && (
-                        <div><span className="font-medium text-slate-700">Phone:</span> {customerPhone}</div>
+                        <div>
+                          <span className="font-medium text-slate-700">Phone:</span>{" "}
+                          {customerPhone}
+                        </div>
                       )}
                       {customerNote && (
-                        <div className="text-slate-600 break-words whitespace-pre-wrap"><span className="font-medium text-slate-700">Note:</span> {customerNote}</div>
+                        <div className="text-slate-600 break-words whitespace-pre-wrap">
+                          <span className="font-medium text-slate-700">Note:</span>{" "}
+                          {customerNote}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -689,11 +736,16 @@ const computePastOrders = (list, currentId) => {
                   {items.map((it) => {
                     const qty = num(it?.quantity, 0);
                     const itemNote = pickText(it, [
-                      "note", "notes", "comment", "comments", "special_request", "description", "options_note"
+                      "note",
+                      "notes",
+                      "comment",
+                      "comments",
+                      "special_request",
+                      "description",
+                      "options_note",
                     ]);
                     const lineSubtotal =
-                      (it?.subtotal != null ? num(it.subtotal, NaN) : NaN) ??
-                      NaN;
+                      (it?.subtotal != null ? num(it.subtotal, NaN) : NaN) ?? NaN;
                     const fallbackUnit = num(it?.unit_price, NaN);
                     const fallbackPrice = num(it?.price, NaN);
                     const computed = Number.isFinite(lineSubtotal)
@@ -703,10 +755,13 @@ const computePastOrders = (list, currentId) => {
                       : Number.isFinite(fallbackPrice)
                       ? fallbackPrice * qty
                       : 0;
-                    const isCancelled = String(it?.status || "").toLowerCase() === "cancelled";
+                    const isCancelled =
+                      String(it?.status || "").toLowerCase() === "cancelled";
+
                     const itemClassName = isCancelled
-                      ? "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5 opacity-50 line-through text-red-400"
-                      : "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5";
+                      ? "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200/80 opacity-60 line-through text-red-400"
+                      : "flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200/80";
+
                     return (
                       <div
                         key={`${it.food_id}-${it.food_name}`}
@@ -717,42 +772,56 @@ const computePastOrders = (list, currentId) => {
                             <div className="font-medium text-slate-900">
                               {it.food_name}{" "}
                               {isCancelled && (
-                                <span className="ml-1 text-xs text-red-400 font-normal">(Cancelled)</span>
+                                <span className="ml-1 text-xs text-red-400 font-normal">
+                                  (Cancelled)
+                                </span>
                               )}
                             </div>
                             <div className="text-xs text-slate-500">×{qty}</div>
                             {itemNote && (
-                              <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">{itemNote}</div>
+                              <div className="mt-1 text-[11px] italic text-slate-500 break-words whitespace-pre-wrap">
+                                {itemNote}
+                              </div>
                             )}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            <div className="text-right min-w-[7rem]">฿{num(computed, 0).toFixed(2)}</div>
-                            {orderIsPending && String(it?.status || "").toLowerCase() === "pending" && (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelItem(it)}
-                                disabled={cancelingId === firstId(it)}
-                                className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-white text-red-600 ring-1 ring-red-200 shadow-sm hover:bg-red-50 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                              >
-                                {cancelingId === firstId(it) ? "Cancelling…" : "Cancel"}
-                              </button>
-                            )}
+                            <div className="text-right min-w-[7rem]">
+                              ฿{num(computed, 0).toFixed(2)}
+                            </div>
+                            {orderIsPending &&
+                              String(it?.status || "").toLowerCase() ===
+                                "pending" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelItem(it)}
+                                  disabled={cancelingId === firstId(it)}
+                                  className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-white text-red-600 ring-1 ring-red-200 shadow-sm hover:bg-red-50 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                >
+                                  {cancelingId === firstId(it)
+                                    ? "Cancelling…"
+                                    : "Cancel"}
+                                </button>
+                              )}
                           </div>
                         </div>
                       </div>
                     );
                   })}
 
-                  <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-black/5">
+                  {/* Total row */}
+                  <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200/80 mt-1">
                     <div className="font-semibold text-slate-700">Total</div>
-                    <div className="font-semibold">฿{derivedTotal.toFixed(2)}</div>
+                    <div className="font-semibold">
+                      ฿{derivedTotal.toFixed(2)}
+                    </div>
                   </div>
                 </div>
 
+                {/* Back button */}
                 <div className="mt-7 flex justify-center">
                   <Link
                     to={`/home?table=${tableIdResolved ?? ""}`}
-                    className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-black/5 hover:bg-slate-200 transition"
+                    className="inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-900 px-6 py-3 text-sm font-semibold shadow-[inset_0_-2px_0_rgba(0,0,0,.05)] ring-1 ring-slate-200 hover:bg-slate-200 transition"
                   >
                     Back to Menu
                   </Link>
@@ -760,81 +829,102 @@ const computePastOrders = (list, currentId) => {
               </div>
             )}
 
-          {/* Past orders */}
-          {!isClosed && (
-            <div className="mt-10">
-              <div className="flex justify-between items-center mb-3">
-                <h2 className="text-lg font-semibold text-slate-800">Past orders for this table</h2>
-                <button
-                  onClick={async () => {
-                    if (isClosed) { setRecent([]); return; }
-                    const tableId = Number(tableIdResolved);
-                    if (!Number.isFinite(tableId) || tableId <= 0) return;
-                    try {
-                      setLoadingPast(true);
-                      const r = await fetch(`${API_BASE}/orders?table_id=${tableId}&include_closed=1`);
-                      const list = (await r.json()) || [];
-                      const filtered = computePastOrders(list, currentId);
-                      setRecent(filtered);
-                    } catch (err) {
-                      console.error("[OrderSummary] Manual past orders refresh failed", err);
-                      setError("Failed to load past orders");
-                    } finally {
-                      setLoadingPast(false);
-                    }
-                  }}
-                  className="text-sm font-medium text-teal-600 hover:text-teal-700"
-                  disabled={loadingPast}
-                >
-                  {loadingPast ? "Refreshing…" : "Refresh"}
-                </button>
-              </div>
+            {/* Past orders & Checkout */}
+            {!isClosed && (
+              <div className="mt-10 max-w-[680px] mx-auto">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="text-lg font-semibold text-slate-800">
+                    Past orders for this table
+                  </h2>
+                  <button
+                    onClick={async () => {
+                      if (isClosed) {
+                        setRecent([]);
+                        return;
+                      }
+                      const tableId = Number(tableIdResolved);
+                      if (!Number.isFinite(tableId) || tableId <= 0) return;
+                      try {
+                        setLoadingPast(true);
+                        const r = await fetch(
+                          `${API_BASE}/orders?table_id=${tableId}&include_closed=1`
+                        );
+                        const list = (await r.json()) || [];
+                        const filtered = computePastOrders(list, currentId);
+                        setRecent(filtered);
+                      } catch (err) {
+                        console.error(
+                          "[OrderSummary] Manual past orders refresh failed",
+                          err
+                        );
+                        setError("Failed to load past orders");
+                      } finally {
+                        setLoadingPast(false);
+                      }
+                    }}
+                    className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    disabled={loadingPast}
+                  >
+                    {loadingPast ? "Refreshing…" : "Refresh"}
+                  </button>
+                </div>
 
-              {loadingPast && <div className="opacity-70">Loading history…</div>}
+                {loadingPast && (
+                  <div className="text-sm text-slate-500">Loading history…</div>
+                )}
 
-              {!loadingPast && (!recent || recent.length === 0) ? (
-                <div className="opacity-70">No previous orders for this table.</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
+                {!loadingPast && (!recent || recent.length === 0) ? (
+                  <div className="text-sm text-slate-500">
+                    No previous orders for this table.
+                  </div>
+                ) : (
+                  <div className="mt-1 space-y-2">
                     {recent.map((o) => (
                       <Link
                         key={o.order_id}
                         to={`/summary/${Number(o.order_id)}?table=${tableIdResolved ?? ""}`}
-                        className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-black/5 cursor-pointer hover:brightness-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
+                        className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 cursor-pointer hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400"
                         aria-label={`View order #${o.order_id}`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="text-sm font-semibold text-slate-700">
-                            #{o.order_id} {o.table_label ? `Table ${o.table_label}` : `Table ${o.table_id}`}
+                            #{o.order_id}{" "}
+                            {o.table_label
+                              ? `Table ${o.table_label}`
+                              : `Table ${o.table_id}`}
                           </div>
                           <span
-                            className={`inline-flex items-center justify-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase ${statusStyle(o.status)}`}>
+                            className={`inline-flex items-center justify-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase ${statusStyle(
+                              o.status
+                            )}`}
+                          >
                             {String(o.status || "").toUpperCase()}
                           </span>
                         </div>
-                        <div className="text-sm font-semibold text-slate-700">฿{Number(o.total_amount || 0).toFixed(2)}</div>
+                        <div className="text-sm font-semibold text-slate-700">
+                          ฿{Number(o.total_amount || 0).toFixed(2)}
+                        </div>
                       </Link>
                     ))}
                   </div>
-                </>
-              )}
-              {/* Checkout button stays at the bottom even if no past orders */}
-              {data && items.length > 0 && isActiveStatus(data.status) && (
-                <div className="mt-8 flex justify-end">
-                  <Link
-                    to={`/checkout?table=${tableIdResolved ?? ""}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white text-red-600 px-6 py-2.5 text-sm font-semibold shadow-md ring-1 ring-red-200 hover:bg-red-50 hover:text-red-700 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400"
-                  >
-                    Checkout
-                  </Link>
-                </div>
-              )}
-            </div>
-             )}
+                )}
+
+                {/* Checkout button */}
+                {data && items.length > 0 && isActiveStatus(data.status) && (
+                  <div className="mt-8 flex justify-end">
+                    <Link
+                      to={`/checkout?table=${tableIdResolved ?? ""}`}
+                      className="inline-flex items-center gap-2 rounded-full bg-[#1d4ed8] text-white px-6 py-2.5 text-sm font-semibold shadow-md shadow-sky-500/30 hover:bg-[#1e40af] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500"
+                    >
+                      Checkout
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
-      </div>
-  </div>
+      </main>
+    </div>
   );
 }

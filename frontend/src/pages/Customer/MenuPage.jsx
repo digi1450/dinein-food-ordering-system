@@ -252,146 +252,214 @@ export default function MenuPage() {
   };
 
   return (
-    <div className="min-h-screen text-slate-900 bg-[radial-gradient(1200px_800px_at_-20%_-10%,#cde7ff,transparent),radial-gradient(900px_650px_at_120%_0%,#ffd9e0,transparent),linear-gradient(180deg,#ffffff,#ffe8cc)]">
-      <div className="max-w-4xl mx-auto px-6 py-10">
-        {/* Header */}
-        <header className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">Menu</h1>
-            <p className="text-sm text-slate-600 mt-1">Table {tableId || "?"}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              className="text-sm font-medium text-teal-700 hover:text-teal-800"
-              to={`/home?table=${tableId}`}
-            >
-              Categories
-            </Link>
-            <Link
-              aria-label="View current order"
-              to={`/summary?table=${tableId}`}
-              className="inline-flex items-center gap-2 rounded-full bg-white/90 text-slate-900 px-3 py-1.5 text-sm font-medium ring-1 ring-black/10 hover:bg-white"
-            >
-              <span
-                className={`inline-block h-2.5 w-2.5 rounded-full ${
-                  hasActiveOrders ? "bg-yellow-400" : "bg-green-400"
-                }`}
-              />
-              <span>Order</span>
-            </Link>
-          </div>
-        </header>
-
-        {/* Tabs */}
-        <div className="mb-6 inline-flex rounded-full bg-white/70 p-1 shadow-inner backdrop-blur supports-[backdrop-filter]:bg-white/60">
-          {[{ category_id: "", category_name: "All" }, ...cats].map((c) => {
-            const active = String(c.category_id) === String(catId);
-            return (
-              <button
-                key={`tab_${c.category_id || "all"}`}
-                onClick={() => toCat(c.category_id || "")}
-                className={
-                  `px-4 py-1.5 rounded-full text-sm font-medium transition ` +
-                  (active ? "bg-slate-900 text-white shadow" : "text-slate-700 hover:bg-white")
-                }
-                aria-current={active ? "page" : undefined}
-              >
-                {c.category_name}
-              </button>
-            );
-          })}
-        </div>
-
-        {loading && (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-[72px] rounded-2xl border border-white/70 bg-white/70 shadow-sm animate-pulse"
-              />
-            ))}
-          </div>
-        )}
-        {err && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-red-700 text-sm shadow-sm">
-            {err}
-          </div>
-        )}
-
-        {/* Menu list */}
-        {!loading && !err && foods.length === 0 && (
-          <div className="mt-4 rounded-2xl border border-white/70 bg-white/90 px-5 py-6 text-center text-slate-600">
-            No items in this category yet.
-          </div>
-        )}
-        <div className="space-y-3">
-          {foods.map((it) => (
-            <div
-              key={it.food_id}
-              className="rounded-2xl border border-white/70 bg-white/90 shadow-sm px-4 py-3 md:p-5 flex items-center justify-between"
-            >
-              <div className="pr-3">
-                <div className="font-semibold text-slate-900">{it.food_name}</div>
-                <div className="text-xs md:text-sm text-slate-500">{it.category_name}</div>
-                {it.description && (
-                  <div className="mt-1 text-xs md:text-sm text-slate-600 whitespace-pre-wrap break-words">
-                    {it.description}
-                  </div>
-                )}
-                <div className="mt-1 text-xs md:text-sm text-slate-700">฿{formatPrice(it.price)}</div>
+    <div className="min-h-screen w-full text-slate-900 bg-slate-50">
+      {/* Top brand bar (blue) */}
+      <header className="sticky top-0 z-20 bg-[#1d4ed8] text-white shadow-md">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-2xl bg-sky-400 flex items-center justify-center text-base font-semibold shadow-sm">
+              📖
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-sky-100/90">
+                Menu
               </div>
-              <div className="relative flex items-center gap-3">
-                <button
-                  onClick={() => addToCart(it)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 active:scale-[.98] transition shadow-sm text-sm font-medium"
-                >
-                  Add to Cart
-                </button>
-                {flying && flying.id === it.food_id && (
-                  <span
-                    className="pointer-events-none absolute left-1/2 -translate-x-1/2 select-none text-slate-900 font-semibold"
-                    style={{
-                      bottom: "110%",
-                      animation: "floatUp 700ms ease-out forwards",
-                      textShadow: "0 1px 2px rgba(0,0,0,0.08)",
-                    }}
-                  >
-                    +1
-                  </span>
-                )}
+              <div className="text-sm md:text-base font-semibold leading-tight">
+                Choose dishes for your table.
               </div>
             </div>
-          ))}
-        </div>
+          </div>
 
-        {/* Navigation buttons */}
-        <div className="mt-6 flex items-center gap-3">
-          {/* Back to Categories */}
-          <Link
-            to={`/home?table=${tableId ?? ""}`}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-full border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 shadow-sm transition"
-          >
-            ← Back
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              className="hidden md:inline-flex items-center text-[11px] px-3 py-1.5 rounded-full bg-white/10 text-sky-50 border border-sky-200/40 hover:bg-white/20 transition"
+              to={`/home?table=${tableId}`}
+            >
+              ← Categories
+            </Link>
 
-          {/* Go to Cart */}
-          <Link
-            to={`/cart?table=${tableId ?? ""}`}
-            className="relative inline-flex items-center gap-2 px-5 py-2 rounded-full border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 shadow-sm transition"
-          >
-            <span>Go to Cart</span>
-            {cartCount > 0 && (
-              <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-                {cartCount}
-              </span>
-            )}
-          </Link>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-sky-100/80">
+                  Table
+                </span>
+                <span className="px-3 py-1 rounded-full bg-sky-500/20 border border-sky-200/40 text-xs font-semibold shadow-sm">
+                  {tableId || "—"}
+                </span>
+              </div>
+
+              <Link
+                aria-label="View current order"
+                to={`/summary?table=${tableId}`}
+                className="inline-flex items-center gap-2 rounded-full bg-white/95 text-slate-900 px-3 py-1.5 text-xs md:text-sm font-medium shadow-sm hover:bg-white"
+              >
+                <span
+                  className={`inline-block h-2.5 w-2.5 rounded-full ${
+                    hasActiveOrders ? "bg-yellow-400" : "bg-green-400"
+                  }`}
+                />
+                <span>Order</span>
+              </Link>
+            </div>
+          </div>
         </div>
-      </div>
+      </header>
+
+      {/* Body */}
+      <main className="max-w-6xl mx-auto px-4 md:px-6 py-8 md:py-10">
+        <section className="bg-white border border-slate-200 rounded-3xl shadow-xl shadow-slate-200/60 px-4 py-6 md:px-7 md:py-7">
+          {/* Title + small info */}
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900">
+                Menu for Table{" "}
+                <span className="text-sky-600">{tableId || "—"}</span>
+              </h1>
+              <p className="mt-1 text-xs md:text-sm text-slate-500">
+                Tap a category tab then add items to your cart.
+              </p>
+            </div>
+
+            {/* Cart pill (top-right) */}
+            <Link
+              to={`/cart?table=${tableId ?? ""}`}
+              className="relative inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900 text-white text-xs md:text-sm font-medium shadow-sm hover:bg-slate-800 transition"
+            >
+              <span>Cart</span>
+              {cartCount > 0 && (
+                <span className="min-w-5 h-5 px-1 rounded-full bg-amber-400 text-slate-900 text-[11px] flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+          </div>
+
+          {/* Tabs */}
+          <div className="mb-6 inline-flex max-w-full overflow-x-auto rounded-full bg-slate-50 p-1 shadow-inner">
+            {[{ category_id: "", category_name: "All" }, ...cats].map((c) => {
+              const active = String(c.category_id) === String(catId);
+              return (
+                <button
+                  key={`tab_${c.category_id || "all"}`}
+                  onClick={() => toCat(c.category_id || "")}
+                  className={
+                    "px-4 py-1.5 rounded-full text-xs md:text-sm font-medium transition " +
+                    (active
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-700 hover:bg-white")
+                  }
+                  aria-current={active ? "page" : undefined}
+                >
+                  {c.category_name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Loading / error */}
+          {loading && (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-[80px] rounded-2xl border border-slate-100 bg-slate-50 shadow-sm animate-pulse"
+                />
+              ))}
+            </div>
+          )}
+
+          {err && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-red-700 text-sm shadow-sm">
+              {err}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loading && !err && foods.length === 0 && (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-6 text-center text-slate-600">
+              No items in this category yet.
+            </div>
+          )}
+
+          {/* Menu list */}
+          <div className="space-y-3">
+            {foods.map((it) => (
+              <div
+                key={it.food_id}
+                className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-transform px-4 py-3 md:p-5 flex items-center justify-between gap-4"
+              >
+                <div className="pr-3 flex-1 min-w-0">
+                  <div className="font-semibold text-slate-900 truncate">
+                    {it.food_name}
+                  </div>
+                  <div className="text-[11px] md:text-xs text-slate-400 uppercase tracking-wide">
+                    {it.category_name}
+                  </div>
+                  {it.description && (
+                    <div className="mt-1 text-xs md:text-sm text-slate-600 whitespace-pre-wrap break-words">
+                      {it.description}
+                    </div>
+                  )}
+                  <div className="mt-1 text-sm md:text-base font-semibold text-slate-900">
+                    ฿{formatPrice(it.price)}
+                  </div>
+                </div>
+
+                <div className="relative flex items-center">
+                  <button
+                    onClick={() => addToCart(it)}
+                    className="px-3.5 py-1.5 rounded-full bg-[#1d4ed8] text-white text-xs md:text-sm font-semibold shadow-sm hover:bg-[#1e40af] active:scale-[.98] transition"
+                  >
+                    Add to cart
+                  </button>
+                  {flying && flying.id === it.food_id && (
+                    <span
+                      className="pointer-events-none absolute left-1/2 -translate-x-1/2 select-none text-slate-900 font-semibold"
+                      style={{
+                        bottom: "110%",
+                        animation: "floatUp 700ms ease-out forwards",
+                        textShadow: "0 1px 2px rgba(0,0,0,0.08)",
+                      }}
+                    >
+                      +1
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom navigation */}
+          <div className="mt-7 flex items-center gap-3 flex-wrap">
+            <Link
+              to={`/home?table=${tableId ?? ""}`}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-full border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-sm text-sm transition-colors"
+            >
+              ← Back to categories
+            </Link>
+
+            <Link
+              to={`/cart?table=${tableId ?? ""}`}
+              className="relative inline-flex items-center gap-2 px-5 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 shadow-sm text-sm transition-colors"
+            >
+              <span>Go to cart</span>
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 min-w-5 h-5 px-1 rounded-full bg-amber-400 text-slate-900 text-xs flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+          </div>
+        </section>
+      </main>
 
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50" aria-live="polite" aria-atomic="true">
-          <div className="rounded-lg border border-white/40 bg-white/90 backdrop-blur px-4 py-2 text-slate-900 shadow-lg">
+        <div
+          className="fixed bottom-4 right-4 z-50"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <div className="rounded-lg border border-slate-200/60 bg-white/95 backdrop-blur px-4 py-2 text-slate-900 shadow-lg">
             {toast.text}
           </div>
         </div>
