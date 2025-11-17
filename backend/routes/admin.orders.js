@@ -328,8 +328,14 @@ const updateOrderStatusHandler = async (req, res) => {
         [id]
       );
     } else {
+      // move order forward in its flow (pending -> preparing -> served, etc.)
       await pool.query(
         "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?",
+        [next, id]
+      );
+      // keep all non-cancelled items in sync with the order status
+      await pool.query(
+        "UPDATE order_item SET status = ? WHERE order_id = ? AND (status IS NULL OR status != 'cancelled')",
         [next, id]
       );
     }
