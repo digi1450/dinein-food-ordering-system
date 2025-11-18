@@ -20,10 +20,7 @@ router.post("/login", async (req, res) => {
     return res.status(401).json({ message: "Invalid credentials" });
 
   const u = rows[0];
-  // Temporary: allow both plaintext and bcrypt passwords during development
-  const ok =
-    u.password === password ||
-    (await bcrypt.compare(password, u.password).catch(() => false));
+  const ok = await bcrypt.compare(password, u.password).catch(() => false);
   if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
   const token = jwt.sign(
