@@ -535,59 +535,6 @@ router.post("/", async (req, res) => {
   }
 });
 
-/* ---------------------------------------------
-   PATCH /api/orders/:id/status
-   Body: { status: "pending" | "preparing" | "served" | "completed" | "cancelled", note? }
----------------------------------------------- */
-router.patch("/:id/status", async (req, res) => {
-  const orderId = Number(req.params.id);
-  const { status, note = null } = req.body || {};
-
-  if (!Number.isFinite(orderId)) {
-    return res.status(400).json({ message: "Invalid order id" });
-  }
-  const ALLOWED = new Set([
-    "pending", "preparing", "served", "completed", "cancelled",
-  ]);
-  if (!ALLOWED.has(String(status))) {
-    return res.status(400).json({ message: "Invalid status value" });
-  }
-
-  try {
-    // 1) อ่านสถานะก่อนหน้า (และ user_id ถ้าผูกผู้สั่งงานไว้)
-    const [[prev]] = await pool.query(
-      `SELECT status, user_id FROM orders WHERE order_id=?`,
-      [orderId]
-    );
-    if (!prev) return res.status(404).json({ message: "Order not found" });
-
-    // 2) อัปเดตสถานะใหม่
-    const [r] = await pool.query(
-      `UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?`,
-      [status, orderId]
-    );
-    if (r.affectedRows === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    // 3) บันทึกลง order_status_log
-    //    - ถ้ายังไม่มีระบบ auth ให้ใช้ user_id = prev.user_id || 1 ชั่วคราว
-    await pool.query(
-      `INSERT INTO order_status_log (order_id, user_id, from_status, to_status, note, created_at)
-       VALUES (?, ?, ?, ?, ?, NOW())`,
-      [orderId, prev?.user_id ?? 1, prev.status, status, note]
-    );
-
-    // 4) โหลด snapshot ปัจจุบันส่งกลับ + แจ้ง SSE
-    const result = await getOrderFlat(orderId);
-    publish(orderId).catch(() => {});
-    return res.json(result);
-
-  } catch (err) {
-    console.error("PATCH /api/orders/:id/status error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-});
 
 
 

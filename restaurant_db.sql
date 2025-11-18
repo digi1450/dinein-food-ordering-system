@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:8889
--- Generation Time: Nov 18, 2025 at 02:03 PM
+-- Generation Time: Nov 18, 2025 at 04:05 PM
 -- Server version: 8.0.40
 -- PHP Version: 8.3.14
 
@@ -278,6 +278,19 @@ CREATE TABLE IF NOT EXISTS `order_status_log` (
   PRIMARY KEY (`log_id`),
   KEY `idx_order_status_log_order` (`order_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Triggers `order_status_log`
+--
+DROP TRIGGER IF EXISTS `trg_order_log_update`;
+DELIMITER $$
+CREATE TRIGGER `trg_order_log_update` AFTER INSERT ON `order_status_log` FOR EACH ROW BEGIN
+    UPDATE orders
+    SET updated_at = NEW.created_at
+    WHERE order_id = NEW.order_id;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
