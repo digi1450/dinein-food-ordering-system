@@ -1,6 +1,7 @@
 // frontend/src/pages/Customer/MenuPage.jsx
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
+import { ShoppingCart } from "lucide-react";
 import API_BASE from "../../lib/apiBase";
 
 const formatPrice = (v) => {
@@ -287,6 +288,20 @@ export default function MenuPage() {
                   {tableId || "—"}
                 </span>
               </div>
+
+              {/* Cart icon link with badge */}
+              <Link
+                to={`/cart?table=${tableId}`}
+                aria-label="Go to cart"
+                className="relative ml-1 p-2 rounded-full bg-sky-500/20 border border-sky-200/40 hover:bg-sky-500/30 transition inline-flex items-center justify-center"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </Link>
 
               <Link
                 aria-label="View current order"

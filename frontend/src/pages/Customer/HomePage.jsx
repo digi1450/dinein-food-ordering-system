@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
+import { ShoppingCart } from "lucide-react";
 
 // Fixed visuals (images placed in frontend/public/images/)
 const VISUALS = [
@@ -15,10 +16,12 @@ export default function HomePage() {
   const nav = useNavigate();
   const { search } = useLocation();
   const tableId = new URLSearchParams(search).get("table") || "";
+  const cartKey = tableId ? `cart_table_${tableId}` : "cart";
 
   const [cats, setCats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [cartCount, setCartCount] = useState(0);
 
   // Derived list merged with fixed visuals, and FORCE display order:
   // Appetizers → Mains → Desserts → Drinks
@@ -76,6 +79,20 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(cartKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const safeArray = Array.isArray(parsed) ? parsed : [];
+      setCartCount(safeArray.reduce((n, it) => n + (it.quantity || 0), 0));
+    } catch {
+      try {
+        localStorage.removeItem(cartKey);
+      } catch {}
+      setCartCount(0);
+    }
+  }, [cartKey]);
+
   const goCategory = (catId) => {
     if (!tableId) {
       alert("Missing table id in URL (use ?table=1)");
@@ -116,6 +133,19 @@ export default function HomePage() {
             >
               {tableId || "—"}
             </span>
+            {/* Cart button with badge */}
+            <button
+              onClick={() => nav(`/cart?table=${tableId}`)}
+              className="relative ml-3 p-2 rounded-full bg-sky-500/20 border border-sky-200/40 hover:bg-sky-500/30 transition"
+              aria-label="Open cart"
+            >
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </header>

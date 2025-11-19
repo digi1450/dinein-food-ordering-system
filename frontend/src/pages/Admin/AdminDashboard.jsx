@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import API_BASE from "../../lib/apiBase";
 import AdminActivityPage from "./AdminActivityPage";
+import { LogOut } from "lucide-react";
 
 // Prefer a real bill (has bill_id) over a placeholder row for the same table.
 function normalizeCurrentBills(list) {
@@ -615,8 +616,7 @@ export default function AdminDashboard() {
             className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/60 px-4 py-1.5 text-sm font-medium text-slate-100 shadow-sm hover:bg-slate-800 hover:border-slate-500 transition-colors"
             title="Logout"
           >
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-            Logout
+            <LogOut className="h-4 w-4" />
           </button>
         </header>
 

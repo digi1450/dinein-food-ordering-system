@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
+import { User } from "lucide-react";
 
 /* ปรับข้อมูลโต๊ะจาก API ให้เป็นรูปแบบเดียว */
 function normalizeTables(payload) {
@@ -88,8 +89,7 @@ export default function SelectTablePage() {
             href="/admin/login"
             className="inline-flex items-center gap-1 rounded-full bg-white/20 border border-white/30 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/30 transition"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Admin
+            <User className="h-4 w-4" />
           </a>
         </div>
       </header>
@@ -106,7 +106,7 @@ export default function SelectTablePage() {
             </p>
             <div className="mt-3 flex justify-center gap-3">
               <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500" /> 
                 Available
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">

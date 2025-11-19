@@ -3,6 +3,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "../../lib/apiBase";
 
+import { LayoutGrid } from "lucide-react";
+
 export default function AdminLogin() {
   const nav = useNavigate();
 
@@ -67,8 +69,8 @@ export default function AdminLogin() {
         href="/"
         className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-[11px] md:text-xs text-white hover:bg-white/20 hover:border-white/30 transition shadow-sm"
       >
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
-        Back to Tables
+        <LayoutGrid className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Tables</span>
       </a>
 
       <div className="w-full max-w-md bg-[#102341] border border-blue-400/10 rounded-2xl p-8 shadow-xl">
