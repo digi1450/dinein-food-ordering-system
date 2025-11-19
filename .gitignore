@@ -9,8 +9,11 @@ frontend/.env
 backend/.env
 
 # Build outputs
-dist
-build
+/dist
+/build
+
+# Logs
+*.log
 
 # Mac system files
 .DS_Store
