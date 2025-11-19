@@ -88,7 +88,7 @@ export default function SelectTablePage() {
             href="/admin/login"
             className="inline-flex items-center gap-1 rounded-full bg-white/20 border border-white/30 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/30 transition"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             Admin
           </a>
         </div>
