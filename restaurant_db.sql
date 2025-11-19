@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:8889
--- Generation Time: Nov 18, 2025 at 04:05 PM
+-- Generation Time: Nov 19, 2025 at 04:22 PM
 -- Server version: 8.0.40
 -- PHP Version: 8.3.14
 
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS `food` (
   KEY `fk_food_created_by` (`created_by`),
   KEY `fk_food_updated_by` (`updated_by`),
   KEY `idx_food_category` (`category_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Dumping data for table `food`
@@ -203,7 +203,7 @@ INSERT INTO `food` (`food_id`, `category_id`, `food_name`, `price`, `description
 (13, 3, 'test 2', 99.00, NULL, NULL, 1, 1, '2025-11-13 13:46:20', '2025-11-16 00:11:53', 1),
 (14, 4, 'test 3.1', 100.00, NULL, NULL, 1, 1, '2025-11-13 13:48:30', '2025-11-15 22:46:52', 1),
 (15, 4, 'testt', 100.00, NULL, NULL, 1, 2, '2025-11-15 23:17:01', '2025-11-16 01:30:35', 1),
-(17, 1, 'TestAP', 10000.00, 'brabra', NULL, 1, 2, '2025-11-16 02:19:25', '2025-11-17 19:54:38', 1),
+(17, 1, 'TestAP', 10000.00, 'brabra', NULL, 1, 1, '2025-11-16 02:19:25', '2025-11-19 18:12:46', 0),
 (18, 2, 'tt234', 125.00, NULL, NULL, 1, 1, '2025-11-16 04:23:05', '2025-11-16 04:58:07', 1),
 (19, 2, 'aaa', 123.00, NULL, NULL, 1, 1, '2025-11-16 20:10:04', '2025-11-16 20:10:04', 1),
 (20, 2, 'menu01', 50.00, 'don\'t order this', NULL, 1, 1, '2025-11-17 19:49:51', '2025-11-17 19:49:51', 1);
@@ -236,6 +236,19 @@ CREATE TABLE IF NOT EXISTS `orders` (
   KEY `idx_o_table_status` (`table_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+--
+-- Triggers `orders`
+--
+DROP TRIGGER IF EXISTS `trg_orders_after_insert`;
+DELIMITER $$
+CREATE TRIGGER `trg_orders_after_insert` AFTER INSERT ON `orders` FOR EACH ROW BEGIN
+  UPDATE table_info
+  SET status = 'occupied'
+  WHERE table_id = NEW.table_id;
+END
+$$
+DELIMITER ;
+
 -- --------------------------------------------------------
 
 --
@@ -259,6 +272,25 @@ CREATE TABLE IF NOT EXISTS `order_item` (
   KEY `idx_oi_order_status` (`order_id`,`status`),
   KEY `idx_order_item_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+--
+-- Triggers `order_item`
+--
+DROP TRIGGER IF EXISTS `trg_order_item_after_update`;
+DELIMITER $$
+CREATE TRIGGER `trg_order_item_after_update` AFTER UPDATE ON `order_item` FOR EACH ROW BEGIN
+  IF NEW.status = 'cancelled' THEN
+    UPDATE orders
+    SET total_amount = (
+      SELECT COALESCE(SUM(subtotal),0)
+      FROM order_item
+      WHERE order_id = NEW.order_id AND status != 'cancelled'
+    )
+    WHERE order_id = NEW.order_id;
+  END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
