@@ -286,7 +286,7 @@ const updateOrderStatusHandler = async (req, res) => {
   ) {
     return res.status(400).json({ error: "Invalid or missing status." });
   }
-  // Admin cannot mark completed; must come from checkout
+  
   if (next === "completed") {
     return res.status(409).json({ error: "Completed is only set by customer checkout." });
   }
